@@ -11,6 +11,7 @@
 //   dbg.step();                // advance one statement
 
 import { stringify } from "./values.js";
+import { LangError } from "./errors.js";
 
 export class Debugger {
   constructor(program, { maxSteps = 1_000_000 } = {}) {
@@ -54,6 +55,12 @@ export class Debugger {
       this.result = res.value;
       this.current = null;
       return null;
+    }
+    if (res.value && res.value.__await) {
+      throw new LangError(
+        "the debugger does not support stepping across 'await'",
+        { line: res.value.line, phase: "runtime" },
+      );
     }
     this.current = res.value;
     this.evaluator.stepCheck(this.current); // count step + enforce fuel limit

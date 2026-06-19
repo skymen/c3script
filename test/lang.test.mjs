@@ -411,3 +411,125 @@ test("range and math built-ins", () => {
   assert.deepEqual(run("let s = 0\nfor (let i of range(5)) { s = s + i }\nprint(s)").out, ["10"]);
   assert.deepEqual(run("print(max(3, 9, 2))\nprint(floor(3.7))\nprint(abs(-4))").out, ["9", "3", "4"]);
 });
+
+// ---- async / await ----
+
+// Compile + run a script that uses await, awaiting the unified run() (which
+// returns a Promise once the script suspends). Returns { result, out, program, vm }.
+async function runAsync(src, globals = {}, opts = {}) {
+  const out = [];
+  const vm = new Interpreter({ print: (s) => out.push(s) });
+  vm.defineGlobals(globals);
+  const program = vm.compile(src);
+  const result = await program.run(opts);
+  return { result, out, program, vm };
+}
+
+test("await resolves a host promise", async () => {
+  const { out } = await runAsync("let x = await load()\nprint(x)", {
+    load: () => Promise.resolve(42),
+  });
+  assert.deepEqual(out, ["42"]);
+});
+
+test("await on a non-promise returns it unchanged", async () => {
+  assert.deepEqual((await runAsync("print(await 5)")).out, ["5"]);
+  assert.deepEqual((await runAsync("print(await 'hi')")).out, ["hi"]);
+});
+
+test("awaited rejection surfaces as a runtime LangError", async () => {
+  await assert.rejects(
+    () => runAsync("await boom()", { boom: () => Promise.reject(new Error("kaboom")) }),
+    (e) => e instanceof LangError && e.phase === "runtime" && /kaboom/.test(e.langMessage),
+  );
+});
+
+test("call stack is intact after an awaited rejection", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ boom: () => Promise.reject(new Error("x")) });
+  const program = vm.compile("function f() { return await boom() }\nawait f()");
+  await assert.rejects(() => program.run(), (e) => e instanceof LangError);
+  assert.equal(vm.evaluator.callStack.length, 0);
+});
+
+test("run() returns the value directly for a fully-synchronous script", () => {
+  const vm = new Interpreter({ print: () => {} });
+  const r = vm.compile("return 1 + 2").run();
+  assert.equal(r, 3);
+  assert.ok(!(r && typeof r.then === "function"), "sync script must not return a Promise");
+});
+
+test("run() transparently returns a Promise when the script awaits", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ load: () => Promise.resolve(99) });
+  const pending = vm.compile("return await load()").run();
+  assert.ok(pending && typeof pending.then === "function", "awaiting script returns a Promise");
+  assert.equal(await pending, 99);
+});
+
+test("awaits do not consume fuel", async () => {
+  // 50 awaits under a tiny step budget: only statement steps count.
+  const src = "let s = 0\nfor (let i of range(50)) { s = s + await one() }\nprint(s)";
+  const { out } = await runAsync(src, { one: () => Promise.resolve(1) }, { maxSteps: 1000 });
+  assert.deepEqual(out, ["50"]);
+});
+
+test("await nested in expression position evaluates correctly", async () => {
+  const g = { arr: () => Promise.resolve([1, 2, 3]), n: () => Promise.resolve(10) };
+  assert.deepEqual((await runAsync("print(len(await arr()))", g)).out, ["3"]);
+  assert.deepEqual((await runAsync("print(await n() + 1)", g)).out, ["11"]);
+});
+
+test("a promise is a first-class value and round-trips to the host", async () => {
+  let received = null;
+  const g = {
+    make: () => Promise.resolve(7),
+    take: (p) => { received = p; return p; }, // host gets a real thenable
+  };
+  const { out } = await runAsync("let p = make()\nprint(type(p))\nprint(await take(p))", g);
+  assert.deepEqual(out, ["promise", "7"]);
+  assert.ok(received && typeof received.then === "function");
+});
+
+test("await a promise stored on a host object property", async () => {
+  const engine = { pendingLoad: Promise.resolve("level1") };
+  const { out } = await runAsync("print(await engine.pendingLoad)", { engine });
+  assert.deepEqual(out, ["level1"]);
+});
+
+test("all() awaits a list of promises in order", async () => {
+  const g = { a: () => Promise.resolve(1), b: () => Promise.resolve(2) };
+  const { out } = await runAsync("let r = await all([a(), b(), 3])\nprint(r)", g);
+  assert.deepEqual(out, ["[1, 2, 3]"]);
+});
+
+test("sleep() suspends and resumes", async () => {
+  const { out } = await runAsync("print('before')\nawait sleep(1)\nprint('after')");
+  assert.deepEqual(out, ["before", "after"]);
+});
+
+test("onStep counts statement steps only, not awaits", async () => {
+  let steps = 0;
+  // Three top-level statements; the two awaits must add zero steps.
+  await runAsync("let a = await one()\nlet b = await one()\nlet c = 3", {
+    one: () => Promise.resolve(1),
+  }, { onStep: () => { steps++; } });
+  assert.equal(steps, 3);
+});
+
+test("call() fires an async handler (returns a Promise)", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ fetch: (id) => Promise.resolve(id * 2) });
+  const program = vm.compile("function onLoad(id) { return await fetch(id) }");
+  program.run(); // define the handler (sync top level)
+  const r = await program.call("onLoad", [21]);
+  assert.equal(r, 42);
+});
+
+test("debugger refuses to step across await", () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ load: () => Promise.resolve(1) });
+  const program = vm.compile("let x = await load()");
+  const dbg = new Debugger(program).start();
+  assert.throws(() => dbg.run(), (e) => e instanceof LangError && /await/.test(e.langMessage));
+});

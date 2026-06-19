@@ -287,6 +287,11 @@ class Parser {
   }
 
   parseUnary() {
+    if (this.isKw("await")) {
+      const t = this.next();
+      const argument = this.parseUnary();
+      return node("Await", { argument, line: t.line });
+    }
     if (this.isPunct("!") || this.isPunct("-")) {
       const op = this.next();
       const argument = this.parseUnary();

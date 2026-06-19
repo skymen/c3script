@@ -66,12 +66,55 @@ export class Evaluator {
 
   // Drive a generator to completion (normal run; no pausing). A JS stack
   // overflow (runaway recursion / huge structure) is converted to a clean error.
+  // Drive a generator to a result. Runs synchronously and returns the value
+  // directly; if the script suspends on `await`, hands off to continueAsync and
+  // returns a Promise from that point on. So a fully-synchronous script never
+  // touches a Promise, while an async one transparently becomes awaitable —
+  // callers can `await` the result either way (awaiting a plain value is a no-op),
+  // and there is a single run/call/invoke API regardless of whether a script awaits.
   drive(gen) {
     try {
       let res = gen.next();
       while (!res.done) {
+        if (res.value && res.value.__await) {
+          return this.continueAsync(gen, res); // suspended -> returns a Promise
+        }
         this.stepCheck(res.value);
         res = gen.next();
+      }
+      return res.value;
+    } catch (e) {
+      if (e instanceof RangeError) {
+        throw this.runtimeError("call stack exhausted (too much recursion)", null);
+      }
+      throw e;
+    }
+  }
+
+  // Async continuation of drive(): resumes pumping once a script has suspended on
+  // its first await-signal (`{ __await, promise }`). Awaits each promise and feeds
+  // the resolved value back in. A rejection is injected via gen.throw() so every
+  // frame's `finally` (callStack.pop) runs as it unwinds to the host.
+  async continueAsync(gen, res) {
+    try {
+      while (!res.done) {
+        if (res.value && res.value.__await) {
+          const line = res.value.line;
+          let v;
+          try {
+            v = await Promise.resolve(res.value.promise);
+          } catch (err) {
+            const langErr = err instanceof LangError
+              ? err
+              : this.runtimeError(`awaited promise rejected: ${err && err.message}`, line);
+            res = gen.throw(langErr);
+            continue;
+          }
+          res = gen.next(hostToScript(v));
+        } else {
+          this.stepCheck(res.value);
+          res = gen.next();
+        }
       }
       return res.value;
     } catch (e) {
@@ -290,6 +333,14 @@ export class Evaluator {
         return isTruthy(test)
           ? yield* this.evalExpr(node.consequent, env)
           : yield* this.evalExpr(node.alternate, env);
+      }
+
+      case "Await": {
+        const p = yield* this.evalExpr(node.argument, env);
+        // Yield an await-signal up to the driver, which awaits the JS promise
+        // and resumes us with the resolved value (see drive / continueAsync).
+        const resolved = yield { __await: true, promise: p, line: node.line };
+        return resolved;
       }
 
       case "Assign":

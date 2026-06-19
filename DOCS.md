@@ -92,6 +92,23 @@ program.run({ maxSteps: 1_000_000, onStep: (cp) => {} });
 - `onStep(checkpoint)` — called before each statement; `checkpoint` is
   `{ line, kind, env }`. Useful for tracing.
 
+#### Async execution
+
+`run()` / `call()` / `invoke()` work the same whether or not a script uses
+`await` (see [Async / await](#async--await)). A fully-synchronous script returns
+its value directly; a script that suspends on `await` returns a JS `Promise`.
+You can therefore always `await` the result — awaiting a plain value is a no-op:
+
+```js
+const n = program.run();              // sync script -> the value
+const n = await program.run();        // async script -> the resolved value
+                                      //   (and harmless if the script was sync)
+await program.call("onLoad", [id]);   // an async event handler
+```
+
+So host code that might run async scripts should just `await` the call; there is
+no separate async API to choose, and no "wrong method" runtime error.
+
 ---
 
 ## 3. Exposing things to scripts
@@ -293,6 +310,30 @@ for (let item of list) { ... }               // for-of: arrays, strings, host ar
 character by character — and host arrays. It does not iterate plain objects; use
 `keys(obj)`.)
 
+### Async / await
+
+`await <expr>` suspends the script until a promise settles, then resumes with the
+resolved value. Promises come from the host (a host function that returns a JS
+`Promise`) or from the `sleep` / `all` built-ins. `await` on a non-promise just
+returns the value unchanged (as in JS).
+
+```js
+let data = await engine.load("level1")   // await a host promise
+await sleep(100)                          // pause 100ms
+let both = await all([loadA(), loadB()])  // wait for several at once
+```
+
+There is no `async` keyword — `await` is allowed in any function (or at the top
+level). You don't pick a special entry point: `run()` / `call()` / `invoke()`
+return a `Promise` automatically when a script suspends on `await`, so just
+`await` the result (see [Async execution](#async-execution)).
+
+A promise is a first-class value: you can store it, pass it to a host function
+(the host receives a real thenable), and `type(p)` reports `"promise"`.
+
+Because the language has no `try`/`catch`, a **rejected** awaited promise
+propagates out as a `LangError` to the host — scripts cannot catch it.
+
 ### Functions and closures
 
 ```js
@@ -395,13 +436,15 @@ Installed by default (`stdlib: true`). They operate directly on script values.
 | `print(...args)` | Print values separated by spaces (goes to the host's `print`). |
 | `len(x)` | Length of an array/string, or number of keys in an object. |
 | `keys(obj)` | Array of an object's keys. |
-| `type(x)` | Type name: `"number"`, `"string"`, `"bool"`, `"null"`, `"array"`, `"object"`, `"function"`, `"class"`, `"instance"`. |
+| `type(x)` | Type name: `"number"`, `"string"`, `"bool"`, `"null"`, `"array"`, `"object"`, `"function"`, `"class"`, `"instance"`, `"promise"`. |
 | `str(x)` | Convert any value to its string form. |
 | `num(x)` | Convert to a number (returns `null` if not numeric). |
 | `bool(x)` | Truthiness of `x` as a bool. |
 | `range(n)` / `range(a, b)` / `range(a, b, step)` | Array of numbers (like Python's `range`). |
 | `abs ceil floor round sqrt` | Math, one argument. |
 | `min(...n)` `max(...n)` `pow(a, b)` | Math. |
+| `sleep(ms)` | Returns a promise that resolves after `ms` milliseconds. `await` it. |
+| `all(arr)` | Returns a promise resolving to an array of the awaited elements. |
 
 ```js
 let total = 0
@@ -542,6 +585,11 @@ platformer that scripts react to live.
   but not mutation methods like `push` (convert to a script array, or expose a
   method). Script-created arrays support all the array methods.
 - **No `try`/`catch`** in the language; errors propagate to the host as `LangError`.
+  This includes a **rejected** awaited promise — scripts cannot catch it.
+- **`await` makes the result a Promise** — `run()` / `call()` / `invoke()` return a
+  `Promise` when (and only when) a script suspends on `await`; otherwise they return
+  the value directly. `await` the call if it might be async. The **debugger** cannot
+  step across an `await`.
 - **No modules/imports** in scripts; a program is a single source string.
 
 ---
@@ -563,9 +611,11 @@ const program = vm.compile(source);
 vm.run(source, opts);                    // compile + run
 
 // --- Program ---
-program.run({ maxSteps, onStep });       // execute top level
+program.run({ maxSteps, onStep });       // execute top level (Promise if it awaits)
 program.call(nameOrPath, args, opts);    // call function/method by name (this-bound)
 program.invoke(fnValue, args, opts);     // call a function value (stored callback)
+// run/call/invoke return a Promise iff the script suspends on `await`; otherwise
+// the value directly. Safe to `await` either way.
 program.has(nameOrPath);                 // does a callable exist?
 program.generator();                     // low-level generator (for Debugger)
 

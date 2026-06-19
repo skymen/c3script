@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test",
     "demo": "node examples/demo.mjs",
+    "async": "node examples/async.mjs",
     "events": "node examples/events.mjs",
     "repl": "node examples/repl.mjs",
     "sandbox": "node sandbox/serve.mjs"

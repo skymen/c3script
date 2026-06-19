@@ -81,6 +81,7 @@ export function typeName(v) {
   if (v instanceof ClassValue) return "class";
   if (v instanceof Instance) return "instance";
   if (v instanceof HostObject) return "object";
+  if (v instanceof Promise) return "promise";
   return "unknown";
 }
 
@@ -110,6 +111,7 @@ export function stringify(v, seen = new Set()) {
   if (v instanceof ClassValue) return `<class ${v.name}>`;
   if (v instanceof Instance) return `<${v.klass.name} instance>`;
   if (v instanceof HostObject) return stringifyHost(v.obj);
+  if (v instanceof Promise) return "<promise>";
   return String(v);
 }
 

@@ -48,6 +48,15 @@ export function installStdlib(env, { print } = {}) {
   def("bool", (x) => isTruthy(x));
   def("range", (a, b, step) => makeRange(a, b, step));
 
+  // Async helpers. These return raw JS promises; scripts consume them with
+  // `await` (the host then awaits the Promise run()/call() returns). Raw builtins
+  // skip marshalling, so the promise reaches the script as an awaitable value.
+  def("sleep", (ms) => new Promise((r) => setTimeout(r, ms == null ? 0 : ms)));
+  def("all", (arr) => {
+    if (!Array.isArray(arr)) throw new Error(`all() expects an array, got ${typeName(arr)}`);
+    return Promise.all(arr.map((x) => Promise.resolve(x)));
+  });
+
   // Math
   def("abs", (x) => Math.abs(x));
   def("floor", (x) => Math.floor(x));

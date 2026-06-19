@@ -24,6 +24,9 @@ export class Program {
   }
 
   // Execute the top-level statements. Run once before using call().
+  // Returns the result directly for a synchronous script, or a Promise of the
+  // result if the script suspends on `await` — so you can always safely write
+  // `await program.run()` (awaiting a plain value is a no-op).
   run({ maxSteps = DEFAULT_MAX_STEPS, onStep = null } = {}) {
     this.evaluator.reset({ maxSteps, onStep });
     return this.evaluator.drive(this.evaluator.execProgram(this.ast, this.env));
@@ -32,6 +35,7 @@ export class Program {
   // Invoke a function by name, including a dotted path to a method on an object
   // (e.g. "player.attack" or "engine.objects.hero.hurt"). `this` is bound for
   // method calls. Host-space args are marshalled in; the return value comes back.
+  // Like run(), returns the value directly or a Promise if the handler awaits.
   call(name, args = [], { maxSteps = DEFAULT_MAX_STEPS, onStep = null } = {}) {
     this.evaluator.reset({ maxSteps, onStep });
     const fn = this.resolvePath(name);

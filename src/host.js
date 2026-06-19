@@ -19,6 +19,8 @@ export function hostToScript(v, policy = DEFAULT_POLICY) {
   if (v === null || v === undefined) return null;
   const t = typeof v;
   if (t === "number" || t === "string" || t === "boolean") return v;
+  // Promises pass through opaquely so scripts can `await` them.
+  if (v instanceof Promise) return v;
   if (t === "function") return new NativeFn(v, v.name || "native");
   // Already a runtime value? pass through unchanged.
   if (
@@ -78,6 +80,7 @@ export function hostGet(host, key) {
   if (target == null || !Object.hasOwn(target, k)) return null; // own properties only
   const val = target[k];
   if (typeof val === "function") return new NativeFn(val, k, target);
+  if (val instanceof Promise) return val; // awaitable, not a live bridge
   if (val !== null && typeof val === "object" &&
       !(val instanceof HostObject) && !(val instanceof Map) &&
       !(val instanceof ClassValue) && !(val instanceof Instance) &&
