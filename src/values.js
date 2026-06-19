@@ -14,12 +14,15 @@ export class Closure {
   }
 }
 
-// Wraps a host (JS) function so it can be called from scripts.
+// Wraps a host (JS) function so it can be called from scripts. `raw` builtins
+// receive/return script values directly (no host marshalling); non-raw host
+// functions have their args marshalled to JS and return values back.
 export class NativeFn {
-  constructor(fn, name = "native", receiver = undefined) {
+  constructor(fn, name = "native", receiver = undefined, raw = false) {
     this.fn = fn;
     this.name = name;
     this.receiver = receiver; // bound `this` for host method calls
+    this.raw = raw;
   }
 }
 
@@ -81,15 +84,25 @@ export function typeName(v) {
   return "unknown";
 }
 
-// Render a script value as a string (used by print / string concat).
-export function stringify(v) {
+// Render a script value as a string (used by print / string concat). Cyclic
+// arrays/objects render as [...] / {...} instead of overflowing the stack.
+export function stringify(v, seen = new Set()) {
   if (v === null || v === undefined) return "null";
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return "[" + v.map(stringify).join(", ") + "]";
+  if (Array.isArray(v)) {
+    if (seen.has(v)) return "[...]";
+    seen.add(v);
+    const r = "[" + v.map((x) => stringify(x, seen)).join(", ") + "]";
+    seen.delete(v);
+    return r;
+  }
   if (v instanceof Map) {
+    if (seen.has(v)) return "{...}";
+    seen.add(v);
     const parts = [];
-    for (const [k, val] of v) parts.push(`${k}: ${stringify(val)}`);
+    for (const [k, val] of v) parts.push(`${k}: ${stringify(val, seen)}`);
+    seen.delete(v);
     return "{" + parts.join(", ") + "}";
   }
   if (v instanceof Closure) return `<function ${v.name || "anonymous"}>`;

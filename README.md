@@ -198,6 +198,29 @@ itself (so they can't drift). The framework-agnostic logic behind it
 | `sandbox/c3-monaco.js` | reusable `C3Editor` Monaco wrapper |
 | `sandbox/` | runnable browser sandbox + tiny static server |
 
+## Security model
+
+The sandbox guarantee: a script can only touch the host through values you
+register, and cannot reach the host's JS internals. Enforced by:
+
+- **The live bridge exposes own properties only.** `hostGet`/`hostSet`
+  (`src/host.js`) read/write only own properties and **deny** `__proto__`,
+  `constructor`, and `prototype`. This blocks prototype-chain climbing to
+  `Object`/`Function`/`globalThis`, the `x.constructor.constructor("…")()` RCE
+  gadget, and prototype pollution. (Host class instances should expose methods as
+  own properties, or via a wrapper, to remain callable from scripts.)
+- **Marshalling never emits dangerous keys** and rejects cyclic structures.
+- **DoS is graceful, not a crash**: runaway recursion, cyclic values, and
+  pathologically nested source all surface as a `LangError`; a step/"fuel" budget
+  bounds loops (`run({ maxSteps })`).
+- **Write policy** per global: `defineGlobal(name, obj, { writable:false })` /
+  `{ extensible:false }` further restrict mutation.
+
+Run the security regression probe with `node examples/sandbox-escape.mjs` (also
+covered in the test suite). **No arbitrary-code-execution path is known.** If you
+extend the bridge (e.g. allowing member access on functions, or exposing inherited
+members), re-run the probe — those are exactly the changes that could reopen RCE.
+
 ## Notes / limitations
 
 - Semicolons are optional; avoid starting a line with `(` or `[` right after an

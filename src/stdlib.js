@@ -36,7 +36,7 @@ export function installStdlib(env, { print } = {}) {
   const out = print || ((s) => console.log(s));
   const def = (name, fn) => env.define(name, new NativeFn(fn, name, undefined, true));
 
-  def("print", (...args) => { out(args.map(stringify).join(" ")); return null; });
+  def("print", (...args) => { out(args.map((a) => stringify(a)).join(" ")); return null; });
   def("len", (x) => lengthOf(x));
   def("keys", (x) => keysOf(x));
   def("type", (x) => typeName(x));

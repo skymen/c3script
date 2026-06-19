@@ -494,5 +494,13 @@ class Parser {
 
 export function parse(source) {
   const tokens = tokenize(source);
-  return new Parser(tokens).parseProgram();
+  try {
+    return new Parser(tokens).parseProgram();
+  } catch (e) {
+    // Pathologically nested input overflows recursive descent — report cleanly.
+    if (e instanceof RangeError) {
+      throw new LangError("input nests too deeply", { phase: "parse" });
+    }
+    throw e;
+  }
 }

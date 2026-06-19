@@ -324,6 +324,89 @@ test("event pattern: host stores script callbacks and fires them via invoke", ()
   assert.deepEqual(fired, ["hurt 10 (#1)", "hurt 25 (#2)"]); // state persists
 });
 
+test("sandbox: prototype pollution is blocked", () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ game: { objects: { player: { hp: 1 } } } });
+  assert.equal(({}).polluted, undefined);
+  // Both the navigate-then-write and the direct __proto__ write must be blocked.
+  assert.throws(() => vm.run(`game.__proto__.polluted = "x"`), (e) => e instanceof LangError);
+  assert.throws(
+    () => vm.run(`game.__proto__ = game`),
+    (e) => e instanceof LangError && /unsafe property/.test(e.langMessage),
+  );
+  assert.equal(({}).polluted, undefined, "Object.prototype must be untouched");
+});
+
+test("sandbox: dangerous keys read as null, not host internals", () => {
+  const vm = new Interpreter({ print: (s) => out.push(s) });
+  const out = [];
+  vm.defineGlobals({ game: { events: ["a"], objects: {} } });
+  vm.run([
+    "print(type(game.constructor))",
+    "print(type(game.__proto__))",
+    "print(type(game.events.prototype))",
+  ].join("\n"));
+  assert.deepEqual(out, ["null", "null", "null"]);
+});
+
+test("sandbox: only own properties are reachable (no inherited methods)", () => {
+  const vm = new Interpreter({ print: (s) => out.push(s) });
+  const out = [];
+  vm.defineGlobals({ game: { real: 42, greet: () => "hi" } });
+  vm.run([
+    "print(game.real)",                 // own data -> ok
+    "print(game.greet())",              // own method -> ok
+    "print(type(game.hasOwnProperty))", // inherited -> null
+    "print(type(game.toString))",       // inherited -> null
+  ].join("\n"));
+  assert.deepEqual(out, ["42", "hi", "null", "null"]);
+});
+
+test("sandbox: the constructor.constructor RCE gadget cannot assemble", () => {
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ game: { objects: {} } });
+  // constructor reads as null, so chaining throws "cannot read property of null".
+  assert.throws(
+    () => vm.run(`game.constructor.constructor("return 1")`),
+    (e) => e instanceof LangError,
+  );
+});
+
+test("raw builtins receive script values (raw flag is honored)", () => {
+  // type() of a function value is "function" (would be "unknown" if args were
+  // marshalled), and len() works on a script object/map.
+  assert.deepEqual(run("print(type(len))").out, ["function"]);
+  assert.deepEqual(run("print(len({ a: 1, b: 2 }))").out, ["2"]);
+  assert.deepEqual(run("print(keys({ a: 1, b: 2 }).len)").out, ["2"]);
+});
+
+test("sandbox: DoS vectors fail gracefully (LangError, not a crash)", () => {
+  // cyclic structure passed to a host function
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobals({ sink: (x) => x });
+  assert.throws(
+    () => vm.run("let a = {}\na.self = a\nsink(a)"),
+    (e) => e instanceof LangError && /cyclic/.test(e.langMessage),
+  );
+
+  // runaway recursion
+  assert.throws(
+    () => run("function f(n) { return f(n + 1) }\nf(0)"),
+    (e) => e instanceof LangError && /call stack/.test(e.langMessage),
+  );
+
+  // pathologically nested source
+  const deep = "let x = " + "[".repeat(5000) + "1" + "]".repeat(5000);
+  assert.throws(
+    () => run(deep),
+    (e) => e instanceof LangError && e.phase === "parse",
+  );
+});
+
+test("sandbox: printing a cyclic value does not crash", () => {
+  assert.deepEqual(run("let a = [1]\na.push(a)\nprint(a)").out, ["[1, [...]]"]);
+});
+
 test("range and math built-ins", () => {
   assert.deepEqual(run("let s = 0\nfor (let i of range(5)) { s = s + i }\nprint(s)").out, ["10"]);
   assert.deepEqual(run("print(max(3, 9, 2))\nprint(floor(3.7))\nprint(abs(-4))").out, ["9", "3", "4"]);

@@ -18,6 +18,10 @@ class ReturnSignal {
 class BreakSignal {}
 class ContinueSignal {}
 
+// Symbol key for the per-method super-context binding. Using a Symbol (not a
+// string) means scripts cannot name or read it via an identifier.
+const SUPER = Symbol("superctx");
+
 function valuesEqual(a, b) {
   if (a === null || a === undefined) return b === null || b === undefined;
   return a === b;
@@ -60,14 +64,22 @@ export class Evaluator {
     if (this.onStep) this.onStep(checkpoint);
   }
 
-  // Drive a generator to completion (normal run; no pausing).
+  // Drive a generator to completion (normal run; no pausing). A JS stack
+  // overflow (runaway recursion / huge structure) is converted to a clean error.
   drive(gen) {
-    let res = gen.next();
-    while (!res.done) {
-      this.stepCheck(res.value);
-      res = gen.next();
+    try {
+      let res = gen.next();
+      while (!res.done) {
+        this.stepCheck(res.value);
+        res = gen.next();
+      }
+      return res.value;
+    } catch (e) {
+      if (e instanceof RangeError) {
+        throw this.runtimeError("call stack exhausted (too much recursion)", null);
+      }
+      throw e;
     }
-    return res.value;
   }
 
   // ---- statements ----
@@ -369,7 +381,7 @@ export class Evaluator {
 
   *callValue(fn, args, line) {
     if (fn instanceof NativeFn) {
-      const callArgs = fn.raw ? args : args.map(scriptToHost);
+      const callArgs = fn.raw ? args : args.map((a) => scriptToHost(a));
       let result;
       try {
         result = fn.fn.apply(fn.receiver, callArgs);
@@ -405,18 +417,17 @@ export class Evaluator {
   bindThis(closure, thisVal) {
     const scope = closure.env.child();
     scope.define("this", thisVal, true);
-    // Super resolves relative to the class that defined this method.
+    // Super resolves relative to the class that defined this method. Stored under
+    // a Symbol so scripts can't reach it by name.
     const parentClass = closure.homeClass ? closure.homeClass.parent : null;
-    scope.define("__superctx__", { parentClass, instance: thisVal }, true);
+    scope.vars.set(SUPER, { parentClass, instance: thisVal });
     return new Closure(closure.params, closure.body, scope, closure.name, closure.homeClass);
   }
 
   superContext(env, line) {
     let ctx = null;
-    try {
-      ctx = env.get("__superctx__", line);
-    } catch {
-      ctx = null;
+    for (let e = env; e; e = e.parent) {
+      if (e.vars.has(SUPER)) { ctx = e.vars.get(SUPER); break; }
     }
     if (!ctx || !ctx.parentClass) {
       throw this.runtimeError("'super' used where there is no superclass", line);
@@ -497,7 +508,7 @@ export class Evaluator {
     if (Array.isArray(value)) return value;
     if (typeof value === "string") return value.split("");
     if (value instanceof HostObject && Array.isArray(value.obj)) {
-      return value.obj.map(hostToScript);
+      return value.obj.map((x) => hostToScript(x, value.policy));
     }
     throw this.runtimeError(`cannot iterate over ${typeName(value)}`, line);
   }
@@ -515,7 +526,7 @@ export class Evaluator {
       case "indexOf":
         return new NativeFn((x) => arr.indexOf(x), "indexOf", undefined, true);
       case "join":
-        return new NativeFn((sep) => arr.map(stringify).join(sep == null ? "," : String(sep)), "join", undefined, true);
+        return new NativeFn((sep) => arr.map((x) => stringify(x)).join(sep == null ? "," : String(sep)), "join", undefined, true);
       case "slice":
         return new NativeFn((a, b) => arr.slice(a ?? 0, b ?? arr.length), "slice", undefined, true);
       default:
