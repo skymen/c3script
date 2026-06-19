@@ -1,0 +1,29 @@
+// Event listening. Scripts register callbacks with host objects; the engine
+// fires those callbacks later via program.invoke(). Top-level state persists,
+// so listeners can read and update it across events.
+
+let playerHp = 100
+
+// Game-scope event.
+game.on("input", (input) => {
+  log("input: " + input.key)
+})
+
+// Object-scope events (game.objects.player is a live host object).
+game.objects.player.on("jump", (e) => {
+  log("player jumped, height=" + e.height)
+})
+
+game.objects.player.on("hurt", (e) => {
+  playerHp = playerHp - e.amount
+  log("player hurt -" + e.amount + " -> hp=" + playerHp)
+  if (playerHp <= 0) {
+    log("player died!")
+  }
+})
+
+// A normal handler the host can also call directly with program.call(...).
+function onReset() {
+  playerHp = 100
+  log("player reset -> hp=" + playerHp)
+}

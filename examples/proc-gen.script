@@ -1,0 +1,25 @@
+// Procedural generation: place a row of tiles and spawn some enemies.
+// `setTile` and `spawn` are host functions provided by the editor.
+
+let width = 5
+for (let x = 0; x < width; x = x + 1) {
+  setTile(x, 0, "grass")
+}
+
+let enemies = ["goblin", "orc", "slime"]
+for (let i = 0; i < enemies.len; i = i + 1) {
+  spawn(enemies[i], i * 2, 1)
+}
+
+// Use a class to model a boss, then spawn it.
+class Boss {
+  constructor(name, hp) {
+    this.name = name
+    this.hp = hp
+  }
+  describe() { return this.name + " (" + str(this.hp) + " hp)" }
+}
+
+let dragon = new Boss("Dragon", 500)
+spawn(dragon.name, width, 0)
+print("spawned boss:", dragon.describe())

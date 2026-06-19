@@ -1,0 +1,13 @@
+{
+  "name": "c3script",
+  "version": "0.1.0",
+  "description": "A small, sandboxed, JS-like scripting language for level editors.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test",
+    "demo": "node examples/demo.mjs",
+    "repl": "node examples/repl.mjs"
+  },
+  "license": "MIT"
+}

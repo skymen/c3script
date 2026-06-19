@@ -1,0 +1,18 @@
+// Per-object behavior. Top-level state (`clicks`) persists between event calls.
+// `engine` is a namespaced host object with live access to editor state.
+
+let clicks = 0
+
+function onSpawn(id) {
+  print("spawned", id, "with hp", engine.objects[id].hp)
+}
+
+function onClick(id) {
+  clicks = clicks + 1
+  engine.objects[id].hp = engine.objects[id].hp - 10   // live write back to host
+  print("clicked", id, "-> hp", engine.objects[id].hp, "(", clicks, "clicks )")
+  if (engine.objects[id].hp <= 0) {
+    engine.destroy(id)
+  }
+  return clicks
+}
