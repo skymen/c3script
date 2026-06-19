@@ -342,9 +342,9 @@ test("sandbox: dangerous keys read as null, not host internals", () => {
   const out = [];
   vm.defineGlobals({ game: { events: ["a"], objects: {} } });
   vm.run([
-    "print(type(game.constructor))",
-    "print(type(game.__proto__))",
-    "print(type(game.events.prototype))",
+    "print(typeof game.constructor)",
+    "print(typeof game.__proto__)",
+    "print(typeof game.events.prototype)",
   ].join("\n"));
   assert.deepEqual(out, ["null", "null", "null"]);
 });
@@ -354,10 +354,10 @@ test("sandbox: only own properties are reachable (no inherited methods)", () => 
   const out = [];
   vm.defineGlobals({ game: { real: 42, greet: () => "hi" } });
   vm.run([
-    "print(game.real)",                 // own data -> ok
-    "print(game.greet())",              // own method -> ok
-    "print(type(game.hasOwnProperty))", // inherited -> null
-    "print(type(game.toString))",       // inherited -> null
+    "print(game.real)",                   // own data -> ok
+    "print(game.greet())",                // own method -> ok
+    "print(typeof game.hasOwnProperty)",  // inherited -> null
+    "print(typeof game.toString)",        // inherited -> null
   ].join("\n"));
   assert.deepEqual(out, ["42", "hi", "null", "null"]);
 });
@@ -373,9 +373,9 @@ test("sandbox: the constructor.constructor RCE gadget cannot assemble", () => {
 });
 
 test("raw builtins receive script values (raw flag is honored)", () => {
-  // type() of a function value is "function" (would be "unknown" if args were
+  // typeof a function value is "function" (would be "unknown" if args were
   // marshalled), and len() works on a script object/map.
-  assert.deepEqual(run("print(type(len))").out, ["function"]);
+  assert.deepEqual(run("print(typeof len)").out, ["function"]);
   assert.deepEqual(run("print(len({ a: 1, b: 2 }))").out, ["2"]);
   assert.deepEqual(run("print(keys({ a: 1, b: 2 }).len)").out, ["2"]);
 });
@@ -410,6 +410,44 @@ test("sandbox: printing a cyclic value does not crash", () => {
 test("range and math built-ins", () => {
   assert.deepEqual(run("let s = 0\nfor (let i of range(5)) { s = s + i }\nprint(s)").out, ["10"]);
   assert.deepEqual(run("print(max(3, 9, 2))\nprint(floor(3.7))\nprint(abs(-4))").out, ["9", "3", "4"]);
+});
+
+test("typeof operator reports value type names", () => {
+  assert.deepEqual(run("print(typeof 1)").out, ["number"]);
+  assert.deepEqual(run("print(typeof 'x')").out, ["string"]);
+  assert.deepEqual(run("print(typeof true)").out, ["bool"]);
+  assert.deepEqual(run("print(typeof null)").out, ["null"]);
+  assert.deepEqual(run("print(typeof [1, 2])").out, ["array"]);
+  assert.deepEqual(run("print(typeof { a: 1 })").out, ["object"]);
+  assert.deepEqual(run("print(typeof print)").out, ["function"]);
+  assert.deepEqual(run("class C {}\nprint(typeof C)\nprint(typeof new C())").out, ["class", "instance"]);
+});
+
+test("typeof binds like a unary op (looser than call/member, tighter than binary)", () => {
+  assert.deepEqual(run("print(typeof 'hi'.upper())").out, ["string"]); // typeof ('hi'.upper())
+  assert.deepEqual(run("print(typeof 1 == 'number')").out, ["true"]);  // (typeof 1) == 'number'
+});
+
+test("instanceof checks the class, walking the inheritance chain", () => {
+  const src = [
+    "class Animal {}",
+    "class Dog extends Animal {}",
+    "class Cat extends Animal {}",
+    "let d = new Dog()",
+    "print(d instanceof Dog)",     // true
+    "print(d instanceof Animal)",  // true (parent)
+    "print(d instanceof Cat)",     // false (sibling)
+  ].join("\n");
+  assert.deepEqual(run(src).out, ["true", "true", "false"]);
+});
+
+test("instanceof is false for non-instances, errors on a non-class RHS", () => {
+  assert.deepEqual(run("class C {}\nprint(5 instanceof C)").out, ["false"]);
+  assert.deepEqual(run("class C {}\nprint(null instanceof C)").out, ["false"]);
+  assert.throws(
+    () => run("print(5 instanceof 5)"),
+    (e) => e instanceof LangError && /right-hand side of 'instanceof' must be a class/.test(e.langMessage),
+  );
 });
 
 // ---- async / await ----
@@ -486,7 +524,7 @@ test("a promise is a first-class value and round-trips to the host", async () =>
     make: () => Promise.resolve(7),
     take: (p) => { received = p; return p; }, // host gets a real thenable
   };
-  const { out } = await runAsync("let p = make()\nprint(type(p))\nprint(await take(p))", g);
+  const { out } = await runAsync("let p = make()\nprint(typeof p)\nprint(await take(p))", g);
   assert.deepEqual(out, ["promise", "7"]);
   assert.ok(received && typeof received.then === "function");
 });

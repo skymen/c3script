@@ -288,8 +288,26 @@ true      false      null        // bool / null
 | Equality    | `== !=` | primitives by value; arrays/objects/instances by reference; `null == null` |
 | Logical     | `&& \|\| !` | `&&`/`\|\|` return an operand value (JS-like), not a forced bool |
 | Ternary     | `cond ? a : b` | |
-| Unary       | `-x  !x` | |
+| Unary       | `-x  !x  typeof x` | `typeof` yields a type-name string (see below) |
+| Type test   | `x instanceof Class` | true if `x` is an instance of `Class` or a subclass |
 | Assignment  | `=  +=  -=  *=  /=` | targets: variable, `obj.prop`, `arr[i]` |
+
+`typeof x` returns one of: `"number"`, `"string"`, `"bool"`, `"null"`, `"array"`,
+`"object"`, `"function"`, `"class"`, `"instance"`, `"promise"`. `instanceof` only
+tests user-defined classes (its right side must be a class); host objects and
+primitives are not instances of anything.
+
+```js
+if (typeof p == "promise") { p = await p }   // detect an un-awaited promise
+
+class Enemy {}
+class Boss extends Enemy {}
+let b = new Boss()
+b instanceof Boss     // true
+b instanceof Enemy    // true (walks the inheritance chain)
+new Enemy() instanceof Boss   // false (an Enemy is not a Boss)
+5 instanceof Enemy            // false (not an instance of anything)
+```
 
 **Truthiness:** `null`, `false`, `0`, `""`, and `NaN` are falsy; everything else is
 truthy.
@@ -329,7 +347,7 @@ return a `Promise` automatically when a script suspends on `await`, so just
 `await` the result (see [Async execution](#async-execution)).
 
 A promise is a first-class value: you can store it, pass it to a host function
-(the host receives a real thenable), and `type(p)` reports `"promise"`.
+(the host receives a real thenable), and `typeof p` reports `"promise"`.
 
 Because the language has no `try`/`catch`, a **rejected** awaited promise
 propagates out as a `LangError` to the host — scripts cannot catch it.
@@ -436,7 +454,6 @@ Installed by default (`stdlib: true`). They operate directly on script values.
 | `print(...args)` | Print values separated by spaces (goes to the host's `print`). |
 | `len(x)` | Length of an array/string, or number of keys in an object. |
 | `keys(obj)` | Array of an object's keys. |
-| `type(x)` | Type name: `"number"`, `"string"`, `"bool"`, `"null"`, `"array"`, `"object"`, `"function"`, `"class"`, `"instance"`, `"promise"`. |
 | `str(x)` | Convert any value to its string form. |
 | `num(x)` | Convert to a number (returns `null` if not numeric). |
 | `bool(x)` | Truthiness of `x` as a bool. |

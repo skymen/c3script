@@ -39,7 +39,6 @@ export function installStdlib(env, { print } = {}) {
   def("print", (...args) => { out(args.map((a) => stringify(a)).join(" ")); return null; });
   def("len", (x) => lengthOf(x));
   def("keys", (x) => keysOf(x));
-  def("type", (x) => typeName(x));
   def("str", (x) => stringify(x));
   def("num", (x) => {
     const n = typeof x === "number" ? x : Number(x);

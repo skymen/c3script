@@ -9,7 +9,7 @@ import { LangError } from "./errors.js";
 const BINARY_PREC = {
   "||": 1, "&&": 2,
   "==": 3, "!=": 3,
-  "<": 4, "<=": 4, ">": 4, ">=": 4,
+  "<": 4, "<=": 4, ">": 4, ">=": 4, "instanceof": 4,
   "+": 5, "-": 5,
   "*": 6, "/": 6, "%": 6,
 };
@@ -274,7 +274,8 @@ class Parser {
 
   parseBinary(minPrec) {
     let left = this.parseUnary();
-    while (this.is(T.PUNCT)) {
+    // `instanceof` is a keyword operator; every other binary op is punctuation.
+    while (this.is(T.PUNCT) || this.isKw("instanceof")) {
       const t = this.peek();
       const prec = BINARY_PREC[t.value];
       if (prec === undefined || prec < minPrec) break;
@@ -291,6 +292,11 @@ class Parser {
       const t = this.next();
       const argument = this.parseUnary();
       return node("Await", { argument, line: t.line });
+    }
+    if (this.isKw("typeof")) {
+      const t = this.next();
+      const argument = this.parseUnary();
+      return node("Unary", { op: "typeof", argument, line: t.line });
     }
     if (this.isPunct("!") || this.isPunct("-")) {
       const op = this.next();

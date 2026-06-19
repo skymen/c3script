@@ -6,7 +6,7 @@ import { LangError } from "./errors.js";
 const KEYWORDS = new Set([
   "let", "const", "function", "return", "if", "else", "while", "for",
   "break", "continue", "true", "false", "null", "class", "new", "this",
-  "extends", "super", "async", "await",
+  "extends", "super", "async", "await", "typeof", "instanceof",
 ]);
 
 export const T = {

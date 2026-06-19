@@ -306,6 +306,7 @@ export class Evaluator {
 
       case "Unary": {
         const v = yield* this.evalExpr(node.argument, env);
+        if (node.op === "typeof") return typeName(v);
         if (node.op === "!") return !isTruthy(v);
         if (node.op === "-") {
           if (typeof v !== "number") {
@@ -625,9 +626,27 @@ export class Evaluator {
       case ">=": return this.compare(l, r, line) >= 0;
       case "==": return valuesEqual(l, r);
       case "!=": return !valuesEqual(l, r);
+      case "instanceof": return this.isInstanceOf(l, r, line);
       default:
         throw this.runtimeError(`unknown operator '${op}'`, line);
     }
+  }
+
+  // `value instanceof klass` — true if `value` is an instance of `klass` or any
+  // of its subclasses (walking the ClassValue.parent chain). The right operand
+  // must be a class.
+  isInstanceOf(value, klass, line) {
+    if (!(klass instanceof ClassValue)) {
+      throw this.runtimeError(
+        `right-hand side of 'instanceof' must be a class, got ${typeName(klass)}`,
+        line,
+      );
+    }
+    if (!(value instanceof Instance)) return false;
+    for (let k = value.klass; k; k = k.parent) {
+      if (k === klass) return true;
+    }
+    return false;
   }
 
   num(v, line) {

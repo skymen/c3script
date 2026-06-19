@@ -89,8 +89,11 @@ await sleep(100)
 let both = await all([loadA(), loadB()])
 ```
 
-**Operators:** `+ - * / %`, `== != < <= > >=`, `&& || !`, `? :`, assignment
-`= += -= *= /=`. **Truthiness:** `null`/`false`/`0`/`""` are falsy.
+**Operators:** `+ - * / %`, `== != < <= > >=`, `&& || !`, `? :`, `typeof x`,
+`x instanceof Class`, assignment `= += -= *= /=`. **Truthiness:**
+`null`/`false`/`0`/`""` are falsy. `typeof` returns a type-name string
+(`"number"`, `"array"`, `"instance"`, `"promise"`, …); `instanceof` tests
+user-defined classes and walks the inheritance chain.
 
 **Async/await:** `await` a promise (returned by a host function or `sleep`/`all`)
 to suspend until it settles; no `async` keyword needed. `run()`/`call()`/`invoke()`
@@ -98,7 +101,7 @@ return a `Promise` automatically when a script awaits (and the value directly wh
 it doesn't), so just `await` the call — there's no separate async API. A rejected
 await propagates to the host as a `LangError` (the language has no `try`/`catch`).
 
-**Built-ins:** `print`, `len`, `keys`, `type`, `str`, `num`, `bool`, `range`,
+**Built-ins:** `print`, `len`, `keys`, `str`, `num`, `bool`, `range`,
 `sleep`, `all`, and math (`abs floor ceil round sqrt min max pow`). Arrays have
 `len/push/pop/indexOf/join/slice`; strings have `len/upper/lower/slice/indexOf/split/contains`.
 
