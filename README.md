@@ -149,6 +149,37 @@ dbg.step();        // advance one statement
 
 Runaway scripts are stopped by a step budget: `program.run({ maxSteps: 100000 })`.
 
+## Browser sandbox (Monaco)
+
+A no-build sandbox with a Monaco editor lives in `sandbox/`:
+
+```
+npm run sandbox      # serves at http://localhost:8080/  (logs go to the console)
+```
+
+- `http://localhost:8080/` — basic editor + event-bus demo.
+- `http://localhost:8080/sandbox/platformer.html` — a live 2D platformer host engine:
+  click the game, then `←/→` move, `↑`/Space jump, `↓` slam; spikes hurt. The side
+  editor scripts react to `game.on("jump"|"land"|"hurt"|"input"|"tick")` and can
+  read/write the live player (`x, y, vx, vy, hp, onGround, jumpStrength`,
+  `setVelocity`, `setVelocityX`, `setVelocityY`, `setPosition`).
+
+It demonstrates the reusable editor integration in `sandbox/c3-monaco.js`:
+
+```js
+const ed = new C3Editor(container, { monaco, globals, argEnums, source });
+const program = ed.run();   // compile + run; errors go to the console
+```
+
+`C3Editor` wires up: JS-based highlighting, live parse diagnostics (red squiggles
+from `parse()` errors), **global-object autocomplete** reflected from your
+`globals`, and **contextual string-argument completion** — e.g. typing
+`game.on("` suggests the valid event names. Enum values come from an explicit
+`argEnums` schema or, conveniently, from an `__events__` array on the host object
+itself (so they can't drift). The framework-agnostic logic behind it
+(`callContextAt`, `completionPath`, `describeObject`, `enumValuesFor`, …) is in
+`src/editor-support.js` and works for any editor front-end (CodeMirror, LSP).
+
 ## Files
 
 | File | Role |
@@ -162,7 +193,10 @@ Runaway scripts are stopped by a step budget: `program.run({ maxSteps: 100000 })
 | `src/host.js` | host-binding layer + marshalling (the sandbox boundary) |
 | `src/stdlib.js` | built-in functions |
 | `src/debugger.js` | step / breakpoints / inspection |
+| `src/editor-support.js` | framework-agnostic autocomplete/diagnostics helpers |
 | `src/index.js` | public API (`Interpreter`, `Program`, `Debugger`) |
+| `sandbox/c3-monaco.js` | reusable `C3Editor` Monaco wrapper |
+| `sandbox/` | runnable browser sandbox + tiny static server |
 
 ## Notes / limitations
 

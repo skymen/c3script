@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>c3script sandbox</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+           background: #1e1e1e; color: #ccc; }
+    #bar button { padding: 6px 16px; cursor: pointer; }
+    #editor { height: calc(100% - 45px); width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <button id="run">▶ Run</button>
+    <span>Output goes to the browser console (press F12). Try <code>game.on("</code> for suggestions.</span>
+  </div>
+  <div id="editor"></div>
+
+  <!-- Monaco via CDN AMD loader (no build step). -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script>
+    require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
+    require(["vs/editor/editor.main"], async () => {
+      const { startSandbox } = await import("/sandbox/sandbox.js");
+      startSandbox(window.monaco);
+    });
+  </script>
+</body>
+</html>

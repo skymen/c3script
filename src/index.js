@@ -115,3 +115,4 @@ export { tokenize } from "./lexer.js";
 export { Debugger } from "./debugger.js";
 export { scriptToHost, hostToScript } from "./host.js";
 export { stringify, typeName } from "./values.js";
+export * from "./editor-support.js";
