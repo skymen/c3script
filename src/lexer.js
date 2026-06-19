@@ -19,7 +19,7 @@ export const T = {
 };
 
 // Multi-char operators, matched before single-char punctuation.
-const OPS2 = ["==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "=>"];
+const OPS2 = ["==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "=>", "++", "--"];
 const SINGLES = "(){}[],;.+-*/%=<>!?:";
 
 const isDigit = (c) => c >= "0" && c <= "9";

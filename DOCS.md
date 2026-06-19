@@ -290,6 +290,7 @@ true      false      null        // bool / null
 | Ternary     | `cond ? a : b` | |
 | Unary       | `-x  !x  typeof x` | `typeof` yields a type-name string (see below) |
 | Type test   | `x instanceof Class` | true if `x` is an instance of `Class` or a subclass |
+| Increment   | `x++  ++x  x--  --x` | numeric target only; postfix yields the old value, prefix the new |
 | Assignment  | `=  +=  -=  *=  /=` | targets: variable, `obj.prop`, `arr[i]` |
 
 `typeof x` returns one of: `"number"`, `"string"`, `"bool"`, `"null"`, `"array"`,
@@ -319,7 +320,7 @@ if (x > 0) { ... } else if (x < 0) { ... } else { ... }
 
 while (cond) { ...; break; ...; continue }
 
-for (let i = 0; i < 10; i = i + 1) { ... }   // C-style
+for (let i = 0; i < 10; i++) { ... }         // C-style
 
 for (let item of list) { ... }               // for-of: arrays, strings, host arrays
 ```

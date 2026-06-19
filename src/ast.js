@@ -15,5 +15,5 @@ export const NODE_TYPES = Object.freeze([
   "NumberLit", "StringLit", "BoolLit", "NullLit", "Identifier", "ThisExpr",
   "ArrayLit", "ObjectLit", "FunctionExpr", "Assign", "Binary", "Logical",
   "Unary", "Ternary", "Call", "NewExpr", "Member", "Index", "SuperExpr",
-  "Await",
+  "Await", "Update",
 ]);

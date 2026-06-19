@@ -344,6 +344,9 @@ export class Evaluator {
         return resolved;
       }
 
+      case "Update":
+        return yield* this.evalUpdate(node, env);
+
       case "Assign":
         return yield* this.evalAssign(node, env);
 
@@ -427,6 +430,45 @@ export class Evaluator {
       return value;
     }
     throw this.runtimeError("invalid assignment target", node.line);
+  }
+
+  // ++ / -- : read the target, require a number, write back old±1. Prefix yields
+  // the new value; postfix yields the original. The target's object/index sub-
+  // expressions are evaluated once.
+  *evalUpdate(node, env) {
+    const t = node.argument;
+    const delta = node.op === "++" ? 1 : -1;
+    const verb = node.op === "++" ? "increment" : "decrement";
+
+    if (t.type === "Identifier") {
+      const old = env.get(t.name, node.line);
+      const cur = this.updateNum(old, verb, node.line);
+      env.assign(t.name, cur + delta, node.line);
+      return node.prefix ? cur + delta : cur;
+    }
+    if (t.type === "Member") {
+      const obj = yield* this.evalExpr(t.object, env);
+      const old = this.getMember(obj, t.property, node.line);
+      const cur = this.updateNum(old, verb, node.line);
+      this.setMember(obj, t.property, cur + delta, node.line);
+      return node.prefix ? cur + delta : cur;
+    }
+    if (t.type === "Index") {
+      const obj = yield* this.evalExpr(t.object, env);
+      const idx = yield* this.evalExpr(t.index, env);
+      const old = this.getIndex(obj, idx, node.line);
+      const cur = this.updateNum(old, verb, node.line);
+      this.setIndex(obj, idx, cur + delta, node.line);
+      return node.prefix ? cur + delta : cur;
+    }
+    throw this.runtimeError("invalid increment/decrement target", node.line);
+  }
+
+  updateNum(v, verb, line) {
+    if (typeof v !== "number") {
+      throw this.runtimeError(`cannot ${verb} ${typeName(v)}`, line);
+    }
+    return v;
   }
 
   // ---- calling ----

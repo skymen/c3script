@@ -60,7 +60,7 @@ obj.hp -= 10
 list.push(4)
 
 if (x > 3 && name != "") { print("ok") } else { print("no") }
-for (let i = 0; i < list.len; i = i + 1) { print(list[i]) }
+for (let i = 0; i < list.len; i++) { print(list[i]) }
 for (let item of list) { print(item) }
 while (x > 0) { x = x - 1 }
 
@@ -90,7 +90,8 @@ let both = await all([loadA(), loadB()])
 ```
 
 **Operators:** `+ - * / %`, `== != < <= > >=`, `&& || !`, `? :`, `typeof x`,
-`x instanceof Class`, assignment `= += -= *= /=`. **Truthiness:**
+`x instanceof Class`, increment/decrement `x++ ++x x-- --x`, assignment
+`= += -= *= /=`. **Truthiness:**
 `null`/`false`/`0`/`""` are falsy. `typeof` returns a type-name string
 (`"number"`, `"array"`, `"instance"`, `"promise"`, …); `instanceof` tests
 user-defined classes and walks the inheritance chain.

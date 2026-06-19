@@ -298,12 +298,38 @@ class Parser {
       const argument = this.parseUnary();
       return node("Unary", { op: "typeof", argument, line: t.line });
     }
+    if (this.isPunct("++") || this.isPunct("--")) {
+      const op = this.next();
+      const argument = this.parseUnary();
+      this.checkUpdateTarget(argument, op);
+      return node("Update", { op: op.value, prefix: true, argument, line: op.line });
+    }
     if (this.isPunct("!") || this.isPunct("-")) {
       const op = this.next();
       const argument = this.parseUnary();
       return node("Unary", { op: op.value, argument, line: op.line });
     }
-    return this.parseCallMember();
+    return this.parsePostfix();
+  }
+
+  // A call/member expression optionally followed by a single postfix ++ / --.
+  parsePostfix() {
+    let expr = this.parseCallMember();
+    if (this.isPunct("++") || this.isPunct("--")) {
+      const op = this.next();
+      this.checkUpdateTarget(expr, op);
+      expr = node("Update", { op: op.value, prefix: false, argument: expr, line: op.line });
+    }
+    return expr;
+  }
+
+  // ++ / -- require an assignable target (variable, member, or index).
+  checkUpdateTarget(target, opTok) {
+    if (!["Identifier", "Member", "Index"].includes(target.type)) {
+      throw new LangError(`'${opTok.value}' requires a variable, property, or index`, {
+        line: opTok.line, column: opTok.column, phase: "parse",
+      });
+    }
   }
 
   parseCallMember() {

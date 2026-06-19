@@ -450,6 +450,46 @@ test("instanceof is false for non-instances, errors on a non-class RHS", () => {
   );
 });
 
+test("++ / -- : postfix yields the old value, prefix the new", () => {
+  assert.deepEqual(run("let x = 5\nprint(x++)\nprint(x)").out, ["5", "6"]);
+  assert.deepEqual(run("let x = 5\nprint(++x)\nprint(x)").out, ["6", "6"]);
+  assert.deepEqual(run("let x = 5\nprint(x--)\nprint(x)").out, ["5", "4"]);
+  assert.deepEqual(run("let x = 5\nprint(--x)\nprint(x)").out, ["4", "4"]);
+});
+
+test("++ / -- on object members and array indices", () => {
+  assert.deepEqual(run("let o = { n: 1 }\no.n++\nprint(o.n)").out, ["2"]);
+  assert.deepEqual(run("let a = [10]\nprint(a[0]++)\nprint(a[0])").out, ["10", "11"]);
+  assert.deepEqual(run("let a = [10]\nprint(--a[0])").out, ["9"]);
+});
+
+test("++ in a C-style for loop", () => {
+  assert.deepEqual(run("let s = 0\nfor (let i = 0; i < 5; i++) { s += i }\nprint(s)").out, ["10"]);
+});
+
+test("++ evaluates the target's index expression only once", () => {
+  const src = [
+    "let n = 0",
+    "function idx() { n = n + 1; return 0 }",
+    "let a = [10]",
+    "a[idx()]++",
+    "print(a[0])", // 11
+    "print(n)",    // 1 -> idx() called once
+  ].join("\n");
+  assert.deepEqual(run(src).out, ["11", "1"]);
+});
+
+test("++ / -- require a numeric, assignable target", () => {
+  assert.throws(
+    () => run("let s = 'a'\ns++"),
+    (e) => e instanceof LangError && e.phase === "runtime" && /cannot increment/.test(e.langMessage),
+  );
+  assert.throws(
+    () => run("print(5++)"),
+    (e) => e instanceof LangError && e.phase === "parse" && /requires a variable/.test(e.langMessage),
+  );
+});
+
 // ---- async / await ----
 
 // Compile + run a script that uses await, awaiting the unified run() (which
