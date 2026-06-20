@@ -2,12 +2,28 @@
 // the JS host (the level editor). Globals registered here become reachable from
 // scripts; nothing else is. Nested host objects are exposed via a live bridge
 // (HostObject) so scripts always read/write current host state. A per-global
-// policy controls whether scripts may modify or extend a host object.
+// policy controls whether scripts may modify or extend a host object, and an
+// optional `fields` map can narrow that policy per key/subtree.
 
 import { NativeFn, Closure, ClassValue, Instance, HostObject } from "./values.js";
 import { LangError } from "./errors.js";
 
 const DEFAULT_POLICY = { writable: true, extensible: true };
+
+// Resolve the policy a nested value gets when a script descends into `key`.
+// A policy node is { writable?, extensible?, fields? }. With no override for the
+// key, the child copies the flat flags (and drops `fields` — the parent's field
+// names address the parent's keys, not a grandchild's). With an override,
+// omitted flags inherit from the parent (nullish, so a `false` override wins).
+function childPolicy(policy, key) {
+  const f = policy.fields && policy.fields[key];
+  if (!f) return { writable: policy.writable, extensible: policy.extensible };
+  return {
+    writable: f.writable ?? policy.writable,
+    extensible: f.extensible ?? policy.extensible,
+    fields: f.fields, // may be undefined; recursion stops if so
+  };
+}
 
 // Keys that would let a script climb the prototype chain to Object/Function or
 // pollute prototypes. Never readable or writable through the bridge.
@@ -85,9 +101,9 @@ export function hostGet(host, key) {
       !(val instanceof HostObject) && !(val instanceof Map) &&
       !(val instanceof ClassValue) && !(val instanceof Instance) &&
       !(val instanceof Closure) && !(val instanceof NativeFn)) {
-    return new HostObject(val, host.policy); // live + inherits policy
+    return new HostObject(val, childPolicy(host.policy, k)); // live + resolved child policy
   }
-  return hostToScript(val, host.policy);
+  return hostToScript(val, childPolicy(host.policy, k));
 }
 
 // Write a property to a live host object, enforcing the object's policy and
@@ -99,9 +115,14 @@ export function hostSet(host, key, value) {
     throw new LangError(`cannot set unsafe property '${k}'`, { phase: "runtime" });
   }
   const p = host.policy || DEFAULT_POLICY;
-  if (!p.writable) {
-    throw new LangError(`cannot modify read-only object (property '${k}')`, { phase: "runtime" });
+  // Writability is per-key: a field override wins, else the object's own flag.
+  const fp = p.fields && p.fields[k];
+  const writable = (fp && fp.writable != null) ? fp.writable : p.writable;
+  if (!writable) {
+    throw new LangError(`cannot modify read-only property '${k}'`, { phase: "runtime" });
   }
+  // Adding a brand-new key is governed by THIS object's extensible; field nodes
+  // describe a value once it exists, they don't grant permission to create it.
   const exists = Array.isArray(host.obj)
     ? typeof key === "number" && key < host.obj.length
     : Object.hasOwn(host.obj, k);
@@ -113,8 +134,8 @@ export function hostSet(host, key, value) {
 }
 
 // Define a single global, optionally with a write policy for nested host state.
-export function defineGlobal(env, name, value, { writable = true, extensible = true } = {}) {
-  env.define(name, hostToScript(value, { writable, extensible }));
+export function defineGlobal(env, name, value, { writable = true, extensible = true, fields } = {}) {
+  env.define(name, hostToScript(value, { writable, extensible, fields }));
 }
 
 // Define many globals at once. The same policy applies to all of them.

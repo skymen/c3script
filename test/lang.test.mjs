@@ -298,6 +298,97 @@ test("sealed (non-extensible) host object rejects new keys but allows updates", 
   );
 });
 
+test("per-field policy: only some keys are writable", () => {
+  const config = { speed: 5, name: "x" };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("config", config, { fields: { name: { writable: false } } });
+  // The un-overridden key inherits the object's default (writable).
+  vm.compile("config.speed = 10").run();
+  assert.equal(config.speed, 10);
+  // The per-field read-only key is rejected (member form).
+  assert.throws(
+    () => vm.compile('config.name = "y"').run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+  // ...and the index form goes through the same enforcement.
+  assert.throws(
+    () => vm.compile('config["name"] = "z"').run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+  assert.equal(config.name, "x");
+});
+
+test("per-field policy: read-only object with a writable subtree", () => {
+  const game = { hp: 100, player: { hp: 50 } };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("game", game, {
+    writable: false,
+    extensible: false,
+    fields: { player: { writable: true, extensible: true } },
+  });
+  // The root is read-only.
+  assert.throws(
+    () => vm.compile("game.hp = 1").run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+  // The player subtree is mutable and extensible.
+  vm.compile("game.player.hp = 5").run();
+  assert.equal(game.player.hp, 5);
+  vm.compile("game.player.mana = 10").run();
+  assert.equal(game.player.mana, 10);
+});
+
+test("per-field policy: a field override does not grant key creation", () => {
+  const obj = { existing: 1 };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("obj", obj, {
+    extensible: false,
+    fields: { foo: { writable: true } },
+  });
+  // `foo` is absent; creation is governed by the object's extensible, not the field.
+  assert.throws(
+    () => vm.compile("obj.foo = 1").run(),
+    (e) => e instanceof LangError && /sealed/.test(e.langMessage),
+  );
+});
+
+test("per-field policy: a false override wins over a writable parent", () => {
+  const obj = { locked: 1 };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("obj", obj, { writable: true, fields: { locked: { writable: false } } });
+  assert.throws(
+    () => vm.compile("obj.locked = 2").run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+  assert.equal(obj.locked, 1);
+});
+
+test("per-field policy: nested fields apply three levels deep", () => {
+  const game = { player: { hp: 50, stats: { str: 5 } } };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("game", game, {
+    fields: { player: { fields: { stats: { writable: false } } } },
+  });
+  // player.hp inherits the default (writable); stats is locked.
+  vm.compile("game.player.hp = 1").run();
+  assert.equal(game.player.hp, 1);
+  assert.throws(
+    () => vm.compile("game.player.stats.str = 1").run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+});
+
+test("per-field policy: a flat policy with no fields behaves as before", () => {
+  const obj = { nested: { x: 1 } };
+  const vm = new Interpreter({ print: () => {} });
+  vm.defineGlobal("obj", obj, { writable: false });
+  // The read-only policy still propagates to nested objects.
+  assert.throws(
+    () => vm.compile("obj.nested.x = 2").run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+});
+
 test("event pattern: host stores script callbacks and fires them via invoke", () => {
   const fired = [];
   const bus = { listeners: [] };

@@ -90,7 +90,9 @@ export class Interpreter {
   }
 
   // options: { writable, extensible } control whether scripts may modify or add
-  // keys to a registered host object (defaults: both true).
+  // keys to a registered host object (defaults: both true). An optional `fields`
+  // map { key: { writable?, extensible?, fields? } } narrows the policy per
+  // key/subtree (omitted flags inherit from the parent).
   defineGlobal(name, value, options = {}) {
     defineGlobal(this.globals, name, value, options);
     return this;

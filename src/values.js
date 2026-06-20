@@ -47,7 +47,8 @@ export class Instance {
 // Live bridge to a host JS object/array. Member access reads/writes the
 // underlying object directly so scripts always see current host state.
 // `policy` controls whether scripts may modify ({writable}) or add new keys
-// ({extensible}); it propagates to nested host objects.
+// ({extensible}); it propagates to nested host objects, and an optional
+// {fields} map can override the policy per key/subtree.
 export class HostObject {
   constructor(obj, policy = { writable: true, extensible: true }) {
     this.obj = obj;

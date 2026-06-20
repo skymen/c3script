@@ -175,6 +175,37 @@ vm.defineGlobal("state",  { hp: 10 },   { extensible: false }); // can update ke
 - `extensible: false` — scripts can change existing keys but cannot add new ones.
 - Both default to `true`. The policy propagates to nested objects.
 
+#### Per-field policies
+
+To make only *part* of an object mutable, add a `fields` map. Each entry is a
+child policy node `{ writable?, extensible?, fields? }` addressing a key of the
+object. Omitted flags inherit from the parent (a `false` override always wins),
+ultimately defaulting to `true`. A node with no `fields` is a leaf.
+
+```js
+// `speed` is writable; everything else (including `name`) is read-only.
+vm.defineGlobal("config", { speed: 5, name: "level1" }, {
+  writable: false,
+  fields: { speed: { writable: true } },
+});
+
+// `game` is locked, except the whole `player` subtree, which is fully mutable.
+vm.defineGlobal("game", game, {
+  writable: false,
+  extensible: false,
+  fields: { player: { writable: true, extensible: true } },
+});
+```
+
+- Adding a brand-new key is always governed by the *containing object's*
+  `extensible`, not by field nodes — a field override describes a value once it
+  exists, it doesn't grant permission to create that key.
+- Per-array-index policy is unsupported; `fields` keys address object properties
+  (a `fields` entry naming a sub-array makes that whole sub-array writable or
+  read-only).
+- `defineGlobals` applies one `fields` map to *every* global in the batch, so use
+  `defineGlobal` for per-field control.
+
 ### Shared scope between scripts
 
 Because writing a missing key creates it, a single registered object works as a
