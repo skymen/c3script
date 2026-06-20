@@ -41,6 +41,40 @@ program.call("onClick", [id]);  // fire an event handler later (state persists)
 Run `npm run demo` for a full end-to-end demo (mock editor), `npm test` for the
 test suite, and `npm run repl` for an interactive prompt.
 
+## Using it in another project
+
+The runtime is **zero-dependency ESM** — no build step is required to embed it.
+A bundler (Vite/webpack/esbuild) or Node resolves the source directly:
+
+```js
+import { Interpreter } from "c3script";   // installed via npm / git / local path
+```
+
+For a **plain browser page without a bundler**, run `npm run build` to emit
+single-file drop-ins to `dist/` (no dependencies, fully self-contained):
+
+| File | Format | Use |
+|------|--------|-----|
+| `dist/c3script.js` | ESM (readable) | `import { Interpreter } from "./c3script.js"` |
+| `dist/c3script.min.js` | ESM (minified, ~39 KB) | `<script type="module">` import |
+| `dist/c3script.global.js` | IIFE global | classic `<script src>` → `window.c3script` |
+
+```html
+<!-- module -->
+<script type="module">
+  import { Interpreter } from "./c3script.min.js";
+  new Interpreter().run('print("hi")');
+</script>
+
+<!-- or classic global -->
+<script src="./c3script.global.js"></script>
+<script>new c3script.Interpreter().run('print("hi")');</script>
+```
+
+The editor autocomplete helpers (`src/editor-support.js`) are included in the
+bundle; the Monaco glue (`sandbox/c3-monaco.js`) is reference code to copy/adapt
+into your own editor, not a packaged export.
+
 ## Language
 
 Dynamically typed. Values: number, string, bool, `null`, array, object/map,

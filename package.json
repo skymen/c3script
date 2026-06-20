@@ -4,9 +4,12 @@
   "description": "A small, sandboxed, JS-like scripting language for level editors.",
   "type": "module",
   "main": "src/index.js",
+  "exports": "./src/index.js",
+  "files": ["src", "dist"],
   "scripts": {
     "test": "node --test",
     "test:editor": "node --test browser-tests/editor.mjs",
+    "build": "node build.mjs",
     "demo": "node examples/demo.mjs",
     "async": "node examples/async.mjs",
     "events": "node examples/events.mjs",
@@ -15,6 +18,7 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "playwright": "^1.61.0"
   }
 }
