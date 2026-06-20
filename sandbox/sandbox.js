@@ -44,10 +44,19 @@ export function startSandbox(monaco) {
   const player = {
     hp: 100,
     __events__: ["jump", "hurt", "land"],
+    __docs__: {
+      hp: "Player health, 0–100.",
+      on: "Listen for a player event: `on(event, callback)`. Events: jump, hurt, land.",
+    },
     on: (event, cb) => bus.on("player:" + event, cb),
   };
   const game = {
     __events__: ["input", "tick", "pause"],
+    __docs__: {
+      on: "Listen for a game event: `on(event, callback)`. Events: input, tick, pause.",
+      spawn: "Spawn an object into the level: `spawn(type, x, y)`.",
+      objects: "Live game objects, addressable by id (e.g. `game.objects.player`).",
+    },
     on: (event, cb) => bus.on("game:" + event, cb),
     spawn: (type, x, y) => console.log("[host] spawn", type, x, y),
     objects: { player },

@@ -68,6 +68,18 @@ export function startPlatformer(monaco) {
   player.setVelocityX = (vx) => { player.vx = vx; };
   player.setVelocityY = (vy) => { player.vy = vy; };
   player.setPosition = (x, y) => { player.x = x; player.y = y; };
+  // Docs surfaced by the editor (completion panel + hover).
+  player.__docs__ = {
+    x: "Player x position (pixels). Read/write via the live bridge.",
+    y: "Player y position (pixels).",
+    hp: "Player health.",
+    onGround: "True when the player is standing on a platform.",
+    jumpStrength: "Upward speed applied on jump — raise it for springier jumps.",
+    setVelocity: "Set both velocity components: `setVelocity(vx, vy)`.",
+    setVelocityX: "Set horizontal velocity: `setVelocityX(vx)`.",
+    setVelocityY: "Set vertical velocity: `setVelocityY(vy)`.",
+    setPosition: "Teleport the player: `setPosition(x, y)`.",
+  };
   const input = { left: false, right: false, up: false, down: false };
 
   // --- host-side event bus; safely invokes the current script's callbacks ---
@@ -93,6 +105,11 @@ export function startPlatformer(monaco) {
   // --- globals exposed to scripts ---
   const game = {
     __events__: ["input", "jump", "land", "hurt", "tick"],
+    __docs__: {
+      on: "Listen for a game event: `on(event, callback)`. Events: input, jump, land, hurt, tick.",
+      objects: "Live game objects (e.g. `game.objects.player`) — read/write their fields directly.",
+      reset: "Reset the player to the start position.",
+    },
     on: (event, cb) => bus.on(event, cb),
     objects: { player }, // live: scripts read/write player.x, player.hp, ...
     reset: () => resetPlayer(),

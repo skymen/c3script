@@ -27,9 +27,11 @@ export function resolvePathValue(root, path) {
 }
 
 // Describe the immediate members of a JS object for completion. Keys starting
-// with "__" are treated as metadata and hidden.
+// with "__" are treated as metadata and hidden. A sibling `__docs__` map (e.g.
+// `{ spawn: "Spawn an object" }`) supplies per-member doc strings.
 export function describeObject(obj) {
   if (!obj || typeof obj !== "object") return [];
+  const docs = obj.__docs__ && typeof obj.__docs__ === "object" ? obj.__docs__ : null;
   return Object.keys(obj)
     .filter((k) => !k.startsWith("__"))
     .map((k) => {
@@ -37,8 +39,49 @@ export function describeObject(obj) {
       const kind =
         typeof v === "function" ? "function" :
         v && typeof v === "object" ? "object" : "value";
-      return { name: k, kind, arity: typeof v === "function" ? v.length : undefined };
+      return {
+        name: k,
+        kind,
+        arity: typeof v === "function" ? v.length : undefined,
+        doc: docs && typeof docs[k] === "string" ? docs[k] : undefined,
+      };
     });
+}
+
+// Resolve the doc string for a member, preferring an explicit schema (keyed by
+// the full dotted path, e.g. "game.spawn") over the inline `__docs__` convention
+// on the receiver object. Returns a string or undefined.
+export function docFor(root, docsSchema, path, name) {
+  const full = [...path, name].join(".");
+  if (docsSchema && typeof docsSchema[full] === "string") return docsSchema[full];
+  const receiver = resolvePathValue(root, path);
+  const conv = receiver && receiver.__docs__;
+  if (conv && typeof conv[name] === "string") return conv[name];
+  return undefined;
+}
+
+// Index where the currently-open (unterminated) string literal starts, or -1 if
+// the text does not end inside a string. Scans real open/close quotes with escape
+// handling, and skips // and /* */ comments so quotes inside comments don't throw
+// off the parity (a greedy regex would also false-match a *closing* quote earlier).
+export function openStringStart(text) {
+  let inStr = false, quote = null, start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], d = text[i + 1];
+    if (inStr) {
+      if (c === "\\") { i++; continue; } // skip the escaped char
+      if (c === quote) { inStr = false; quote = null; }
+    } else if (c === "/" && d === "/") {
+      while (i < text.length && text[i] !== "\n") i++; // line comment
+    } else if (c === "/" && d === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++; // block comment
+      i++; // skip the closing '*'; loop's i++ skips the '/'
+    } else if (c === '"' || c === "'") {
+      inStr = true; quote = c; start = i;
+    }
+  }
+  return inStr ? start : -1;
 }
 
 // If the cursor sits inside a string literal that is an argument to a call,
@@ -47,9 +90,9 @@ export function describeObject(obj) {
 //   -> { callee, method, receiverPath, argIndex, inString: true } | null
 export function callContextAt(text) {
   // Are we inside an unterminated string at the end of the prefix?
-  const m = text.match(/(["'])(?:[^"'\\]|\\.)*$/);
-  if (!m) return null;
-  const before = text.slice(0, m.index);
+  const strStart = openStringStart(text);
+  if (strStart < 0) return null;
+  const before = text.slice(0, strStart);
 
   // Walk back to the "(" that opens this argument list, counting top-level commas.
   let depth = 0;
@@ -120,6 +163,14 @@ export function collectScriptSymbols(source) {
 
 // The built-in (stdlib) function names, for top-level completion.
 export const BUILTINS = [
-  "print", "len", "keys", "type", "str", "num", "bool", "range",
+  "print", "len", "keys", "str", "num", "bool", "range",
   "abs", "floor", "ceil", "round", "sqrt", "min", "max", "pow",
+  "sleep", "all",
+];
+
+// Language keywords, for top-level completion (mirrors lexer.js KEYWORDS).
+export const KEYWORDS = [
+  "let", "const", "function", "return", "if", "else", "while", "for",
+  "break", "continue", "true", "false", "null", "class", "new", "this",
+  "extends", "super", "async", "await", "typeof", "instanceof",
 ];

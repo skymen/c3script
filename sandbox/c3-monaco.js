@@ -11,7 +11,7 @@
 import { Interpreter, LangError, parse } from "../src/index.js";
 import {
   callContextAt, completionPath, resolvePathValue, describeObject,
-  collectScriptSymbols, enumValuesFor, BUILTINS,
+  collectScriptSymbols, enumValuesFor, docFor, BUILTINS, KEYWORDS,
 } from "../src/editor-support.js";
 
 let providersRegistered = false;
@@ -22,20 +22,21 @@ export class C3Editor {
     monaco,
     globals = {},
     argEnums = {},
+    docs = {},
     source = "",
-    language = "javascript",
+    language = "c3script",
     theme = "vs-dark",
   } = {}) {
     if (!monaco) throw new Error("C3Editor requires a `monaco` instance");
     this.monaco = monaco;
     this.globals = globals;
     this.argEnums = argEnums;
+    this.docs = docs;
 
-    // Highlight with JS, but turn off JS/TS validation — we provide our own.
-    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: true,
-    });
+    // c3script is its OWN Monaco language (not JavaScript), so the only completion/
+    // hover provider in play is ours — no built-in JS IntelliSense competing with it.
+    // Must register the language before a model is created with it.
+    registerLanguage(monaco, language);
 
     this.editor = monaco.editor.create(container, {
       value: source,
@@ -46,11 +47,13 @@ export class C3Editor {
       fontSize: 14,
       tabSize: 2,
       scrollBeyondLastLine: false,
+      // No document-word suggestions — only our c3script completions.
+      // (boolean form; Monaco 0.45 predates the "off"/"currentDocument" enum.)
+      wordBasedSuggestions: false,
     });
     this.model = this.editor.getModel();
     registry.set(this.model.uri.toString(), this);
 
-    registerProviders(monaco, language);
     this._lint();
     this.model.onDidChangeContent(() => this._lint());
   }
@@ -99,9 +102,49 @@ export class C3Editor {
   }
 }
 
-function registerProviders(monaco, language) {
+function registerLanguage(monaco, language) {
   if (providersRegistered) return;
   providersRegistered = true;
+
+  // Register c3script as a first-class Monaco language: tokenizer (highlighting),
+  // language configuration (comments/brackets/auto-close), and our providers.
+  monaco.languages.register({ id: language });
+  monaco.languages.setLanguageConfiguration(language, {
+    comments: { lineComment: "//", blockComment: ["/*", "*/"] },
+    brackets: [["{", "}"], ["[", "]"], ["(", ")"]],
+    autoClosingPairs: [
+      { open: "{", close: "}" }, { open: "[", close: "]" }, { open: "(", close: ")" },
+      { open: '"', close: '"' }, { open: "'", close: "'" },
+    ],
+    surroundingPairs: [
+      { open: "{", close: "}" }, { open: "[", close: "]" }, { open: "(", close: ")" },
+      { open: '"', close: '"' }, { open: "'", close: "'" },
+    ],
+  });
+  monaco.languages.setMonarchTokensProvider(language, {
+    defaultToken: "",
+    keywords: KEYWORDS,
+    builtins: BUILTINS,
+    tokenizer: {
+      root: [
+        [/\/\/.*$/, "comment"],
+        [/\/\*/, "comment", "@comment"],
+        [/[A-Za-z_$][\w$]*/, {
+          cases: { "@keywords": "keyword", "@builtins": "predefined", "@default": "identifier" },
+        }],
+        [/\d+\.?\d*([eE][-+]?\d+)?/, "number"],
+        [/"([^"\\]|\\.)*"/, "string"],
+        [/'([^'\\]|\\.)*'/, "string"],
+        [/[{}()[\]]/, "@brackets"],
+        [/[;,.]/, "delimiter"],
+      ],
+      comment: [
+        [/[^*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/./, "comment"],
+      ],
+    },
+  });
 
   monaco.languages.registerCompletionItemProvider(language, {
     triggerCharacters: [".", '"', "'"],
@@ -134,37 +177,77 @@ function registerProviders(monaco, language) {
         };
       }
 
+      const withDoc = (item, doc) =>
+        doc ? { ...item, documentation: { value: doc } } : item;
+
       const fnItem = (name, detail) => ({
         label: name, kind: K.Function, detail,
         insertText: name + "($0)", insertTextRules: snippetRule, range,
       });
-      const memberItem = (d) => ({
+      // `path` is the dotted receiver path, used to resolve docs (schema or
+      // the receiver's __docs__ convention) for each member.
+      const memberItem = (d, path) => withDoc({
         label: d.name,
         kind: d.kind === "function" ? K.Method : d.kind === "object" ? K.Module : K.Field,
         detail: d.kind === "function" && d.arity != null ? `function(${d.arity} args)` : d.kind,
         insertText: d.kind === "function" ? d.name + "($0)" : d.name,
         insertTextRules: d.kind === "function" ? snippetRule : undefined,
         range,
-      });
+      }, docFor(inst.globals, inst.docs, path, d.name));
 
       // 2. Member completion after a dot (reflected from the live globals).
       const cp = completionPath(prefix);
       if (cp.isMember) {
         const obj = resolvePathValue(inst.globals, cp.path);
-        return { suggestions: describeObject(obj).map(memberItem) };
+        return { suggestions: describeObject(obj).map((d) => memberItem(d, cp.path)) };
       }
 
-      // 3. Top-level: globals + builtins + the user's own declarations.
-      const out = describeObject(inst.globals).map(memberItem);
-      for (const name of BUILTINS) out.push(fnItem(name, "builtin"));
+      // 3. Top-level: globals + builtins + the user's own declarations + keywords.
+      // De-dupe by label so the four sources don't produce repeats.
+      const out = [];
+      const seen = new Set();
+      const add = (item) => { if (!seen.has(item.label)) { seen.add(item.label); out.push(item); } };
+
+      for (const d of describeObject(inst.globals)) add(memberItem(d, []));
+      for (const name of BUILTINS) add(fnItem(name, "builtin"));
       for (const s of collectScriptSymbols(inst.getSource())) {
-        out.push({
+        add({
           label: s.name,
           kind: s.kind === "function" ? K.Function : s.kind === "class" ? K.Class : K.Variable,
           detail: s.kind, insertText: s.name, range,
         });
       }
+      for (const kw of KEYWORDS) {
+        add({ label: kw, kind: K.Keyword, detail: "keyword", insertText: kw, range });
+      }
       return { suggestions: out };
+    },
+  });
+
+  // Hover: show a prop's doc (from the `docs` schema or a `__docs__` convention).
+  monaco.languages.registerHoverProvider(language, {
+    provideHover(model, position) {
+      const inst = registry.get(model.uri.toString());
+      if (!inst) return null;
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+      // The dotted path ending at the hovered word (e.g. game.objects.player.hp).
+      const lineToWord = model.getValueInRange({
+        startLineNumber: position.lineNumber, startColumn: 1,
+        endLineNumber: position.lineNumber, endColumn: word.endColumn,
+      });
+      const m = lineToWord.match(/[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/);
+      if (!m) return null;
+      const parts = m[0].split(".");
+      const name = parts.pop();
+      const doc = docFor(inst.globals, inst.docs, parts, name);
+      if (!doc) return null;
+      return {
+        range: new monaco.Range(
+          position.lineNumber, word.startColumn, position.lineNumber, word.endColumn,
+        ),
+        contents: [{ value: doc }],
+      };
     },
   });
 }

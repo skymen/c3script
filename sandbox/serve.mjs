@@ -29,7 +29,12 @@ const server = http.createServer(async (req, res) => {
       return res.end("forbidden");
     }
     const data = await readFile(file);
-    res.writeHead(200, { "content-type": TYPES[extname(file)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": TYPES[extname(file)] || "application/octet-stream",
+      // Dev server: never cache, so edits to the source modules show up on a
+      // plain reload (no stale ES modules served from the browser cache).
+      "cache-control": "no-store, must-revalidate",
+    });
     res.end(data);
   } catch {
     res.writeHead(404);
