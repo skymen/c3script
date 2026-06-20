@@ -161,6 +161,119 @@ export function collectScriptSymbols(source) {
   }
 }
 
+// Member names for the built-in value types (mirrors interpreter.js
+// arrayMember/stringMember), so a variable known to be an array/string can
+// complete its methods.
+export const ARRAY_MEMBERS = [
+  { name: "length", kind: "value" }, { name: "len", kind: "value" },
+  { name: "push", kind: "function", arity: 1 }, { name: "pop", kind: "function", arity: 0 },
+  { name: "indexOf", kind: "function", arity: 1 }, { name: "join", kind: "function", arity: 1 },
+  { name: "slice", kind: "function", arity: 2 },
+];
+export const STRING_MEMBERS = [
+  { name: "length", kind: "value" }, { name: "len", kind: "value" },
+  { name: "upper", kind: "function", arity: 0 }, { name: "lower", kind: "function", arity: 0 },
+  { name: "slice", kind: "function", arity: 2 }, { name: "indexOf", kind: "function", arity: 1 },
+  { name: "split", kind: "function", arity: 1 }, { name: "contains", kind: "function", arity: 1 },
+];
+
+// The dotted path of an Identifier/Member chain (e.g. game.objects.player ->
+// ["game","objects","player"]), expanding a root that is itself a known local
+// alias. Returns null if the node isn't a pure identifier/member path.
+function chainPath(node, locals) {
+  const parts = [];
+  let n = node;
+  while (n && n.type === "Member") { parts.unshift(n.property); n = n.object; }
+  if (!n || n.type !== "Identifier") return null;
+  const aliased = locals[n.name];
+  if (aliased && aliased.kind === "globalPath") return [...aliased.path, ...parts];
+  return [n.name, ...parts];
+}
+
+// Infer a lightweight "type" for each top-level variable from its initializer,
+// so member completion can resolve locals. Descriptors:
+//   { kind:"globalPath", path }      let p = game.objects.player
+//   { kind:"array" }                 let a = [1, 2]
+//   { kind:"string" }                let s = "hi"
+//   { kind:"instance", className }   let e = new Enemy()
+// Only top-level `let`/`const` declarations are considered (resolved in order,
+// so aliases of aliases expand). Returns {} if the source doesn't parse.
+export function inferLocalTypes(source) {
+  let ast;
+  try { ast = parse(source); } catch { return {}; }
+  const locals = {};
+  for (const s of ast.body) {
+    if (s.type !== "VarDecl" || !s.init) continue;
+    const init = s.init;
+    if (init.type === "Member" || init.type === "Identifier") {
+      const path = chainPath(init, locals);
+      if (path) locals[s.name] = { kind: "globalPath", path };
+    } else if (init.type === "ArrayLit") {
+      locals[s.name] = { kind: "array" };
+    } else if (init.type === "StringLit") {
+      locals[s.name] = { kind: "string" };
+    } else if (init.type === "NewExpr" && init.callee.type === "Identifier") {
+      locals[s.name] = { kind: "instance", className: init.callee.name };
+    }
+  }
+  return locals;
+}
+
+// Members of a user-defined class: its methods plus the `this.x = …` fields set
+// in the constructor, walking the `extends` chain. Returns [{name, kind, arity?}].
+export function classMembers(source, className) {
+  let ast;
+  try { ast = parse(source); } catch { return []; }
+  const classes = {};
+  for (const s of ast.body) if (s.type === "ClassDecl") classes[s.name] = s;
+
+  const out = [];
+  const seen = new Set();
+  const guard = new Set();
+  let cls = classes[className];
+  while (cls && !guard.has(cls.name)) {
+    guard.add(cls.name);
+    for (const m of cls.members) {
+      if (m.isCtor) {
+        for (const stmt of m.body.body) {
+          const e = stmt.type === "ExprStmt" ? stmt.expression : null;
+          if (e && e.type === "Assign" && e.target.type === "Member" &&
+              e.target.object.type === "ThisExpr" && !seen.has(e.target.property)) {
+            seen.add(e.target.property);
+            out.push({ name: e.target.property, kind: "value" });
+          }
+        }
+      } else if (!seen.has(m.name)) {
+        seen.add(m.name);
+        out.push({ name: m.name, kind: "function", arity: m.params.length });
+      }
+    }
+    const sup = cls.superClass;
+    cls = sup && sup.type === "Identifier" ? classes[sup.name] : null;
+  }
+  return out;
+}
+
+// Members to suggest after a dot, resolving the root through inferred local
+// types first, then falling back to the live globals graph. `path` is the dotted
+// receiver path (e.g. ["p"] or ["game","objects"]). Returns [{name, kind, …}].
+export function memberSuggestions(path, { globals = {}, source = "" } = {}) {
+  const [root, ...rest] = path;
+  const loc = inferLocalTypes(source)[root];
+  if (loc) {
+    if (loc.kind === "globalPath") {
+      return describeObject(resolvePathValue(globals, [...loc.path, ...rest]));
+    }
+    if (rest.length === 0) {
+      if (loc.kind === "array") return ARRAY_MEMBERS;
+      if (loc.kind === "string") return STRING_MEMBERS;
+      if (loc.kind === "instance") return classMembers(source, loc.className);
+    }
+    return [];
+  }
+  return describeObject(resolvePathValue(globals, path));
+}
+
 // The built-in (stdlib) function names, for top-level completion.
 export const BUILTINS = [
   "print", "len", "keys", "str", "num", "bool", "range",

@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   completionPath, resolvePathValue, describeObject, docFor,
-  collectScriptSymbols, openStringStart, callContextAt, BUILTINS, KEYWORDS,
+  collectScriptSymbols, openStringStart, callContextAt,
+  inferLocalTypes, classMembers, memberSuggestions, ARRAY_MEMBERS, STRING_MEMBERS,
+  BUILTINS, KEYWORDS,
 } from "../src/editor-support.js";
 
 test("BUILTINS is in sync with the stdlib (no removed `type`, includes sleep/all)", () => {
@@ -105,4 +107,59 @@ test("collectScriptSymbols gathers top-level declarations", () => {
     { name: "C", kind: "class" },
   ]);
   assert.deepEqual(collectScriptSymbols("let ="), []); // parse error -> []
+});
+
+test("inferLocalTypes maps top-level vars to type descriptors", () => {
+  const t = inferLocalTypes([
+    "let p = game.objects.player",
+    "let q = p",                    // alias of an alias
+    "let r = p.inventory",          // member off an alias
+    "let a = [1, 2]",
+    "let s = \"hi\"",
+    "let e = new Enemy()",
+    "let n = 5",                    // number -> not inferable, omitted
+  ].join("\n"));
+
+  assert.deepEqual(t.p, { kind: "globalPath", path: ["game", "objects", "player"] });
+  assert.deepEqual(t.q, { kind: "globalPath", path: ["game", "objects", "player"] });
+  assert.deepEqual(t.r, { kind: "globalPath", path: ["game", "objects", "player", "inventory"] });
+  assert.deepEqual(t.a, { kind: "array" });
+  assert.deepEqual(t.s, { kind: "string" });
+  assert.deepEqual(t.e, { kind: "instance", className: "Enemy" });
+  assert.equal(t.n, undefined);
+  assert.deepEqual(inferLocalTypes("let ="), {}); // parse error -> {}
+});
+
+test("classMembers lists methods + ctor fields, walking extends", () => {
+  const src = [
+    "class Animal { constructor() { this.hp = 10 } breathe() {} }",
+    "class Dog extends Animal { constructor() { super(); this.name = \"rex\" } bark(loud) {} }",
+  ].join("\n");
+  const names = classMembers(src, "Dog").map((m) => m.name).sort();
+  assert.deepEqual(names, ["bark", "breathe", "hp", "name"]);
+  const bark = classMembers(src, "Dog").find((m) => m.name === "bark");
+  assert.deepEqual({ kind: bark.kind, arity: bark.arity }, { kind: "function", arity: 1 });
+});
+
+test("memberSuggestions resolves locals, then falls back to globals", () => {
+  const player = { hp: 100, setVelocity: () => {}, __docs__: { hp: "health" } };
+  const globals = { game: { on: () => {}, objects: { player } } };
+
+  // alias -> the real object's members (with convention docs)
+  const viaAlias = memberSuggestions(["p"], { globals, source: "let p = game.objects.player" });
+  const hp = viaAlias.find((m) => m.name === "hp");
+  assert.equal(hp.doc, "health");
+  assert.ok(viaAlias.some((m) => m.name === "setVelocity"));
+
+  // array / string literal -> built-in member lists
+  assert.equal(memberSuggestions(["a"], { source: "let a = [1,2]" }), ARRAY_MEMBERS);
+  assert.equal(memberSuggestions(["s"], { source: "let s = 'x'" }), STRING_MEMBERS);
+
+  // instance -> class members
+  const inst = memberSuggestions(["e"], { source: "class Enemy { hurt(n) {} }\nlet e = new Enemy()" });
+  assert.deepEqual(inst.map((m) => m.name), ["hurt"]);
+
+  // unknown root -> treated as a global (existing reflective behavior)
+  const viaGlobal = memberSuggestions(["game"], { globals, source: "" });
+  assert.deepEqual(viaGlobal.map((m) => m.name).sort(), ["objects", "on"]);
 });

@@ -10,7 +10,7 @@
 
 import { Interpreter, LangError, parse } from "../src/index.js";
 import {
-  callContextAt, completionPath, resolvePathValue, describeObject,
+  callContextAt, completionPath, describeObject, memberSuggestions,
   collectScriptSymbols, enumValuesFor, docFor, BUILTINS, KEYWORDS,
 } from "../src/editor-support.js";
 
@@ -195,11 +195,15 @@ function registerLanguage(monaco, language) {
         range,
       }, docFor(inst.globals, inst.docs, path, d.name));
 
-      // 2. Member completion after a dot (reflected from the live globals).
+      // 2. Member completion after a dot. Resolves the root through inferred
+      // local-variable types (e.g. `let p = game.objects.player; p.`) and the
+      // live globals graph. Parse only the lines BEFORE the cursor: the line being
+      // typed (`p.`) is incomplete and would otherwise break alias inference.
       const cp = completionPath(prefix);
       if (cp.isMember) {
-        const obj = resolvePathValue(inst.globals, cp.path);
-        return { suggestions: describeObject(obj).map((d) => memberItem(d, cp.path)) };
+        const source = inst.getSource().split("\n").slice(0, position.lineNumber - 1).join("\n");
+        const members = memberSuggestions(cp.path, { globals: inst.globals, source });
+        return { suggestions: members.map((d) => memberItem(d, cp.path)) };
       }
 
       // 3. Top-level: globals + builtins + the user's own declarations + keywords.

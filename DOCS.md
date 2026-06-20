@@ -565,25 +565,36 @@ it — those are the changes most likely to reopen an escape.
 editor dependency) for building autocomplete and diagnostics:
 
 - `completionPath(prefix)` — dotted path being typed.
-- `resolvePathValue(globals, path)` / `describeObject(obj)` — reflect members.
-- `callContextAt(prefix)` — detect that the cursor is inside a string argument of a
-  call (for enum-value suggestions like `game.on("…")`).
-- `enumValuesFor(ctx, { globals, argEnums })` — resolve those enum values, from an
-  explicit schema or an `__events__` array on the host object.
+- `memberSuggestions(path, { globals, source })` — members to offer after a dot. It
+  resolves the root through inferred local-variable types first, then the live
+  globals graph.
+- `inferLocalTypes(source)` / `classMembers(source, name)` — lightweight type
+  inference: maps top-level `let p = game.objects.player` (and array/string/`new
+  Class()` initializers) so `p.` completes the right members.
+- `resolvePathValue(globals, path)` / `describeObject(obj)` — reflect members; a
+  sibling `__docs__` map on an object supplies per-member doc strings.
+- `docFor(globals, docsSchema, path, name)` — resolve a member's doc, preferring an
+  explicit `docs` schema (keyed by dotted path) over the `__docs__` convention.
+- `callContextAt(prefix)` / `enumValuesFor(...)` — detect the cursor is inside a
+  string argument and resolve enum values (e.g. `game.on("…")`), from a schema or an
+  `__events__` array on the host object.
 - `collectScriptSymbols(source)` — the user's own declared names.
-- `BUILTINS` — the stdlib names.
+- `BUILTINS` / `KEYWORDS` — stdlib names and language keywords.
 
 A ready-made Monaco wrapper lives in `sandbox/c3-monaco.js`:
 
 ```js
-const ed = new C3Editor(container, { monaco, globals, argEnums, source });
+const ed = new C3Editor(container, { monaco, globals, argEnums, docs, source });
 const program = ed.run();   // compile + run; errors go to the console
 ```
 
-It wires up highlighting (reuses Monaco's JS tokenizer), live parse diagnostics,
-global-object autocomplete, and contextual string-argument completion. The
-browser sandboxes (`npm run sandbox`) show it in action, including a playable
-platformer that scripts react to live.
+It registers c3script as its **own** Monaco language (dedicated tokenizer + config,
+so no JavaScript IntelliSense competes with it), and wires up live parse
+diagnostics, member completion (globals + inferred local types), contextual
+string-argument enums, and prop docs shown in completion and on hover (via a
+`docs` schema or `__docs__` on the host objects). The browser sandboxes
+(`npm run sandbox`) show it in action, including a playable platformer that scripts
+react to live.
 
 ---
 
