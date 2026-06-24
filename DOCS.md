@@ -384,6 +384,32 @@ A promise is a first-class value: you can store it, pass it to a host function
 Because the language has no `try`/`catch`, a **rejected** awaited promise
 propagates out as a `LangError` to the host — scripts cannot catch it.
 
+#### Creating your own promise — `defer()`
+
+`defer()` returns a script-controllable promise as an object
+`{ promise, resolve, reject }`. Await `promise`, and settle it later — typically
+from a separate event handler:
+
+```js
+let pending = defer()
+on("dialogClosed", (answer) => pending.resolve(answer))   // settle from a handler
+let answer = await pending.promise                         // suspends until then
+```
+
+`resolve(value)` fulfils the promise with `value`; `reject(error)` rejects it (the
+awaiting script then fails with a `LangError`, just like any rejected await).
+Settling more than once is a no-op (first call wins).
+
+Two things to watch:
+
+- **Settle from a *different* turn.** Calling `resolve`/`reject` on the same code
+  path *after* `await pending.promise` never runs — the script is parked at the
+  await — so the promise hangs forever. Resolve from an event handler the host
+  fires later (or before you await).
+- **Values round-trip through the host** on resume, so a script array or object
+  passed to `resolve` comes back as a host object (the same behavior as awaiting
+  `all([...])`). Primitives are unchanged.
+
 ### Functions and closures
 
 ```js
@@ -494,6 +520,7 @@ Installed by default (`stdlib: true`). They operate directly on script values.
 | `min(...n)` `max(...n)` `pow(a, b)` | Math. |
 | `sleep(ms)` | Returns a promise that resolves after `ms` milliseconds. `await` it. |
 | `all(arr)` | Returns a promise resolving to an array of the awaited elements. |
+| `defer()` | Returns `{ promise, resolve(v), reject(e) }` — a script-controllable promise. |
 
 ```js
 let total = 0

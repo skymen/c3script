@@ -3,6 +3,7 @@
 // public API. `print` output is overridable for tests and custom hosts.
 
 import { NativeFn, stringify, typeName, isTruthy, HostObject } from "./values.js";
+import { LangError } from "./errors.js";
 
 function lengthOf(x) {
   if (Array.isArray(x) || typeof x === "string") return x.length;
@@ -54,6 +55,25 @@ export function installStdlib(env, { print } = {}) {
   def("all", (arr) => {
     if (!Array.isArray(arr)) throw new Error(`all() expects an array, got ${typeName(arr)}`);
     return Promise.all(arr.map((x) => Promise.resolve(x)));
+  });
+  // A script-controllable promise (like JS Promise.withResolvers). Returns a
+  // script object { promise, resolve(v), reject(e) }; await `promise` and settle
+  // it later from a separate event handler. All three are raw so the resolved
+  // value is marshalled exactly once, on resume, by continueAsync.
+  def("defer", () => {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    promise.catch(() => {}); // mark handled: an un-awaited reject must not leak as
+                             // a host-process unhandledRejection; real awaiters
+                             // still observe settlement via their own await.
+    const obj = new Map();
+    obj.set("promise", promise);
+    obj.set("resolve", new NativeFn((v = null) => { resolve(v); return null; }, "resolve", undefined, true));
+    obj.set("reject", new NativeFn((e = null) => {
+      reject(e instanceof LangError ? e : new LangError(stringify(e), { phase: "runtime" }));
+      return null;
+    }, "reject", undefined, true));
+    return obj;
   });
 
   // Math

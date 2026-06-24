@@ -278,7 +278,7 @@ export function memberSuggestions(path, { globals = {}, source = "" } = {}) {
 export const BUILTINS = [
   "print", "len", "keys", "str", "num", "bool", "range",
   "abs", "floor", "ceil", "round", "sqrt", "min", "max", "pow",
-  "sleep", "all",
+  "sleep", "all", "defer",
 ];
 
 // Language keywords, for top-level completion (mirrors lexer.js KEYWORDS).

@@ -695,6 +695,47 @@ test("call() fires an async handler (returns a Promise)", async () => {
   assert.equal(r, 42);
 });
 
+test("defer(): resolving from a separate handler wakes the awaiter", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  const program = vm.compile("let d = defer()\nfunction fire(x) { d.resolve(x) }\nreturn await d.promise");
+  const pending = program.run(); // suspends at the await -> returns a Promise
+  assert.ok(pending && typeof pending.then === "function", "awaiting script returns a Promise");
+  await program.call("fire", [7]); // settle it from a separate driving cycle
+  assert.equal(await pending, 7);
+});
+
+test("defer(): reject surfaces as a LangError on the awaiter", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  const program = vm.compile("let d = defer()\nfunction fail(msg) { d.reject(msg) }\nreturn await d.promise");
+  const pending = program.run();
+  const expectation = assert.rejects(() => pending, (e) => e instanceof LangError && /boom/.test(e.langMessage));
+  await program.call("fail", ["boom"]);
+  await expectation;
+});
+
+test("defer(): rejecting with a non-string value still yields a LangError", async () => {
+  const vm = new Interpreter({ print: () => {} });
+  const program = vm.compile("let d = defer()\nfunction fail() { d.reject([1, 2]) }\nreturn await d.promise");
+  const pending = program.run();
+  const expectation = assert.rejects(() => pending, (e) => e instanceof LangError);
+  await program.call("fail", []);
+  await expectation;
+});
+
+test("defer(): a rejected-but-never-awaited promise does not leak unhandledRejection", async () => {
+  let leaked = null;
+  const onUnhandled = (e) => { leaked = e; };
+  process.once("unhandledRejection", onUnhandled);
+  try {
+    const { out } = await runAsync("let d = defer()\nd.reject('ignored')\nprint('ok')");
+    assert.deepEqual(out, ["ok"]);
+    await new Promise((r) => setTimeout(r, 0)); // flush any pending rejection turn
+  } finally {
+    process.removeListener("unhandledRejection", onUnhandled);
+  }
+  assert.equal(leaked, null);
+});
+
 test("debugger refuses to step across await", () => {
   const vm = new Interpreter({ print: () => {} });
   vm.defineGlobals({ load: () => Promise.resolve(1) });

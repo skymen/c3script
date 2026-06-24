@@ -195,26 +195,30 @@ export class Evaluator {
       case "ForStmt": {
         const scope = env.child();
         if (stmt.init) yield* this.execStmt(stmt.init, scope);
-        while (stmt.test === null || isTruthy(yield* this.evalExpr(stmt.test, scope))) {
+        // For a `let`/`const` header, each iteration runs in a fresh env carrying
+        // the loop variable forward, so closures created in the body capture that
+        // iteration's value (JS `let` semantics) instead of one shared binding.
+        const perIter = !!(stmt.init && stmt.init.type === "VarDecl");
+        const name = perIter ? stmt.init.name : null;
+        const isConst = perIter && stmt.init.kind === "const";
+        let cur = perIter ? this.iterEnv(env, scope, name, isConst) : scope;
+        while (stmt.test === null || isTruthy(yield* this.evalExpr(stmt.test, cur))) {
           try {
-            yield* this.execStmt(stmt.body, scope);
+            yield* this.execStmt(stmt.body, cur);
           } catch (e) {
             if (e instanceof BreakSignal) break;
-            if (e instanceof ContinueSignal) {
-              // fall through to update
-            } else {
-              throw e;
-            }
+            if (!(e instanceof ContinueSignal)) throw e; // continue -> fall through to update
           }
-          if (stmt.update) yield* this.evalExpr(stmt.update, scope);
+          if (perIter) cur = this.iterEnv(env, cur, name, isConst); // copy value forward
+          if (stmt.update) yield* this.evalExpr(stmt.update, cur);
         }
         return;
       }
       case "ForOfStmt": {
         const iterable = yield* this.evalExpr(stmt.iterable, env);
         const items = this.toIterable(iterable, stmt.line);
-        const scope = env.child();
         for (const item of items) {
+          const scope = env.child(); // fresh binding per iteration
           scope.define(stmt.name, item, stmt.kind === "const");
           try {
             yield* this.execStmt(stmt.body, scope);
