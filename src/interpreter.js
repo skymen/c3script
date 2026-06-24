@@ -611,6 +611,14 @@ export class Evaluator {
     throw this.runtimeError(`cannot iterate over ${typeName(value)}`, line);
   }
 
+  // Fresh per-iteration loop scope carrying `name`'s current value forward, so
+  // closures in a `for` body capture that iteration's binding (JS `let`).
+  iterEnv(outer, prev, name, isConst) {
+    const e = outer.child();
+    e.define(name, prev.get(name, null), isConst);
+    return e;
+  }
+
   // Built-in array members (returned as raw NativeFns closing over the array).
   arrayMember(arr, name, line) {
     switch (name) {

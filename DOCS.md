@@ -360,6 +360,16 @@ for (let item of list) { ... }               // for-of: arrays, strings, host ar
 character by character — and host arrays. It does not iterate plain objects; use
 `keys(obj)`.)
 
+Each iteration of a `for`/`for-of` loop gets a **fresh binding** of the loop
+variable (like JavaScript `let`), so a function created inside the body captures
+that iteration's value rather than the final one:
+
+```js
+let cbs = []
+for (let i of [1, 2, 3]) { cbs.push(() => i) }
+cbs[0]()   // 1   (not 3)
+```
+
 ### Async / await
 
 `await <expr>` suspends the script until a promise settles, then resumes with the

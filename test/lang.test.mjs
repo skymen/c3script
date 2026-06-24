@@ -72,6 +72,29 @@ test("functions, recursion, and closures", () => {
   assert.deepEqual(run("let add = (a, b) => a + b\nprint(add(4, 5))").out, ["9"]);
 });
 
+test("loops create a fresh binding per iteration (closure capture)", () => {
+  // for-of: each closure captures its own iteration's value, not the last one.
+  assert.deepEqual(
+    run("let f = []\nfor (let x of [1, 2, 3]) { f.push(function() { return x }) }\nprint(f[0]())\nprint(f[1]())\nprint(f[2]())").out,
+    ["1", "2", "3"],
+  );
+  // C-style for: same per-iteration semantics.
+  assert.deepEqual(
+    run("let f = []\nfor (let i = 0; i < 3; i = i + 1) { f.push(function() { return i }) }\nprint(f[0]())\nprint(f[1]())\nprint(f[2]())").out,
+    ["0", "1", "2"],
+  );
+  // const in a for-of header still works and captures per iteration.
+  assert.deepEqual(
+    run("let f = []\nfor (const x of [7, 8]) { f.push(function() { return x }) }\nprint(f[0]())\nprint(f[1]())").out,
+    ["7", "8"],
+  );
+  // Mutating the loop variable in the body carries forward to the next iteration.
+  assert.deepEqual(
+    run("let f = []\nfor (let i = 0; i < 6; i = i + 1) { i = i + 1\nf.push(function() { return i }) }\nprint(f.len)\nprint(f[0]())\nprint(f[1]())\nprint(f[2]())").out,
+    ["3", "1", "3", "5"],
+  );
+});
+
 test("arrays: literals, index, push, len, for-of", () => {
   assert.deepEqual(run("let a = [1, 2, 3]\nprint(a[0] + a[2])").out, ["4"]);
   assert.deepEqual(run("let a = [1]\na.push(2)\na.push(3)\nprint(a.len)").out, ["3"]);
