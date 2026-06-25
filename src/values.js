@@ -62,6 +62,38 @@ export function isCallable(v) {
   return v instanceof Closure || v instanceof NativeFn;
 }
 
+// Keys beginning with `__` are private metadata channels (e.g. __docs__,
+// __events__, __argEnums__): host tooling and the editor read them, but they are
+// invisible to running scripts — not readable/writable through the host bridge,
+// not enumerated by keys()/len(), and not stringified. (DANGEROUS_KEYS in host.js
+// — __proto__/constructor/prototype — are a stricter subset blocked separately.)
+export function isPrivateKey(k) {
+  return typeof k === "string" && k.startsWith("__");
+}
+
+// Natural ordering for arr.sort() with no comparator: nulls first, numbers
+// ascending, everything else by string order. Returns <0 / 0 / >0.
+export function defaultCompare(a, b) {
+  if (a === b) return 0;
+  if (a === null || a === undefined) return b === null || b === undefined ? 0 : -1;
+  if (b === null || b === undefined) return 1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  const sa = String(a);
+  const sb = String(b);
+  return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
+
+// Fisher–Yates shuffle, in place. Returns the same array.
+export function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = arr[i];
+    arr[i] = arr[j];
+    arr[j] = t;
+  }
+  return arr;
+}
+
 // JS-like, simplified truthiness: null / false / 0 / "" / empty are falsy.
 export function isTruthy(v) {
   if (v === null || v === undefined) return false;
@@ -121,7 +153,10 @@ function stringifyHost(obj) {
   if (typeof obj === "function") return "<native function>";
   if (obj && typeof obj === "object") {
     const parts = [];
-    for (const k of Object.keys(obj)) parts.push(`${k}: ...`);
+    for (const k of Object.keys(obj)) {
+      if (isPrivateKey(k)) continue; // metadata channels stay invisible to scripts
+      parts.push(`${k}: ...`);
+    }
     return "{" + parts.join(", ") + "}";
   }
   return String(obj);

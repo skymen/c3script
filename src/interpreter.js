@@ -6,7 +6,7 @@
 
 import {
   Closure, NativeFn, ClassValue, Instance, HostObject,
-  isTruthy, typeName, stringify,
+  isCallable, isTruthy, typeName, stringify, defaultCompare, shuffleInPlace,
 } from "./values.js";
 import { hostGet, hostSet, scriptToHost, hostToScript } from "./host.js";
 import { LangError } from "./errors.js";
@@ -123,6 +123,41 @@ export class Evaluator {
       }
       throw e;
     }
+  }
+
+  // Run a script callable to completion SYNCHRONOUSLY, sharing the current run's
+  // steps/fuel (unlike Program.call/invoke, which reset). Refuses to suspend: it
+  // throws if the callable hits an `await`. Used so a native array method (sort)
+  // can call a script comparator and get a number back without going async.
+  driveSync(gen, line) {
+    let res = gen.next();
+    while (!res.done) {
+      if (res.value && res.value.__await) {
+        throw this.runtimeError("cannot 'await' inside a sort comparator", line);
+      }
+      this.stepCheck(res.value);
+      res = gen.next();
+    }
+    return res.value;
+  }
+
+  // Build a JS comparator from an optional script compareFn. `wrap` marshals each
+  // element to a script value before the comparator sees it (identity for native
+  // script arrays, host→script for host arrays). A compareFn may return a number
+  // (JS-style: <0 / 0 / >0) OR a boolean ("a before b"). No compareFn → natural order.
+  sortComparator(compareFn, line, wrap) {
+    if (compareFn == null) return defaultCompare;
+    if (!isCallable(compareFn)) {
+      throw this.runtimeError(
+        `sort(compareFn) expects a function, got ${typeName(compareFn)}`,
+        line,
+      );
+    }
+    return (a, b) => {
+      const r = this.driveSync(this.callValue(compareFn, [wrap(a), wrap(b)], line), line);
+      if (typeof r === "number") return r;
+      return isTruthy(r) ? -1 : 1;
+    };
   }
 
   // ---- statements ----
@@ -546,6 +581,10 @@ export class Evaluator {
       return obj.has(name) ? obj.get(name) : null;
     }
     if (obj instanceof HostObject) {
+      // A wrapped JS array (e.g. a level.findAll result) gets the same array
+      // members as a native script array — push/pop/sort/shuffle/… — with host
+      // marshalling across the boundary.
+      if (Array.isArray(obj.obj)) return this.hostArrayMember(obj, name, line);
       return hostGet(obj, name);
     }
     if (Array.isArray(obj)) return this.arrayMember(obj, name, line);
@@ -635,8 +674,63 @@ export class Evaluator {
         return new NativeFn((sep) => arr.map((x) => stringify(x)).join(sep == null ? "," : String(sep)), "join", undefined, true);
       case "slice":
         return new NativeFn((a, b) => arr.slice(a ?? 0, b ?? arr.length), "slice", undefined, true);
+      case "sort":
+        // sort(compareFn?) — in place, returns the array. No comparator → natural
+        // order (numbers ascending, otherwise string order). A comparator may
+        // return a number (JS-style: <0 / 0 / >0) OR a boolean ("a before b").
+        return new NativeFn((compareFn) => {
+          arr.sort(this.sortComparator(compareFn, line, (x) => x));
+          return arr;
+        }, "sort", undefined, true);
+      case "shuffle":
+        // shuffle() — Fisher–Yates in place, returns the array.
+        return new NativeFn(() => shuffleInPlace(arr), "shuffle", undefined, true);
       default:
         throw this.runtimeError(`array has no member '${name}'`, line);
+    }
+  }
+
+  // Array members for a HOST array (a HostObject wrapping a JS array, e.g. the
+  // result of level.findAll/level.objects). Mirrors arrayMember but marshals
+  // across the host boundary: values handed to the script (pop/comparator) are
+  // wrapped, arguments coming in (push/indexOf) are unwrapped, and in-place
+  // mutators return the SAME HostObject so later indexing stays wrapped. Unknown
+  // members fall back to hostGet (own props only).
+  hostArrayMember(host, name, line) {
+    const arr = host.obj;
+    const wrap = (x) => hostToScript(x, host.policy);
+    switch (name) {
+      case "len":
+      case "length":
+        return arr.length;
+      case "push":
+        return new NativeFn((...items) => {
+          arr.push(...items.map((x) => scriptToHost(x)));
+          return arr.length;
+        }, "push", undefined, true);
+      case "pop":
+        return new NativeFn(() => (arr.length ? wrap(arr.pop()) : null), "pop", undefined, true);
+      case "indexOf":
+        return new NativeFn((x) => arr.indexOf(scriptToHost(x)), "indexOf", undefined, true);
+      case "join":
+        return new NativeFn(
+          (sep) => arr.map((x) => stringify(wrap(x))).join(sep == null ? "," : String(sep)),
+          "join", undefined, true,
+        );
+      case "slice":
+        return new NativeFn(
+          (a, b) => new HostObject(arr.slice(a ?? 0, b ?? arr.length), host.policy),
+          "slice", undefined, true,
+        );
+      case "sort":
+        return new NativeFn((compareFn) => {
+          arr.sort(this.sortComparator(compareFn, line, wrap));
+          return host;
+        }, "sort", undefined, true);
+      case "shuffle":
+        return new NativeFn(() => { shuffleInPlace(arr); return host; }, "shuffle", undefined, true);
+      default:
+        return hostGet(host, name);
     }
   }
 

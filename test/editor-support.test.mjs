@@ -7,11 +7,20 @@ import {
   BUILTINS, KEYWORDS,
 } from "../src/editor-support.js";
 
-test("BUILTINS is in sync with the stdlib (no removed `type`, includes sleep/all)", () => {
+test("BUILTINS is in sync with the stdlib (derived from CORE_GLOBAL_NAMES)", () => {
   assert.ok(!BUILTINS.includes("type"), "`type` was removed from the language");
+  assert.ok(!BUILTINS.includes("all"), "`all` was renamed to `waitAll`");
+  assert.ok(!BUILTINS.includes("floor"), "bare math moved to the Math module");
   assert.ok(BUILTINS.includes("sleep"));
-  assert.ok(BUILTINS.includes("all"));
+  assert.ok(BUILTINS.includes("waitAll"));
+  assert.ok(BUILTINS.includes("log"));
   assert.ok(BUILTINS.includes("print"));
+});
+
+test("ARRAY_MEMBERS includes sort and shuffle", () => {
+  const names = ARRAY_MEMBERS.map((m) => m.name);
+  assert.ok(names.includes("sort"));
+  assert.ok(names.includes("shuffle"));
 });
 
 test("KEYWORDS covers the language keywords used for completion", () => {

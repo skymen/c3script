@@ -26,9 +26,9 @@ function makeEngine() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. await a host promise + sleep() + all()
+// 1. await a host promise + sleep() + waitAll()
 // ---------------------------------------------------------------------------
-banner("1. await host promises, sleep, all");
+banner("1. await host promises, sleep, waitAll");
 {
   const vm = new Interpreter({ print: line });
   vm.defineGlobals({ engine: makeEngine() });
@@ -38,7 +38,7 @@ banner("1. await host promises, sleep, all");
     let a = await engine.load("level1")
     await sleep(10)
     let b = await engine.load("level2")
-    let both = await all([engine.load("level1"), engine.load("level2")])
+    let both = await waitAll([engine.load("level1"), engine.load("level2")])
     print("level1 tiles: " + a.tiles)
     print("level2 tiles: " + b.tiles)
     print("loaded " + len(both) + " levels at once")

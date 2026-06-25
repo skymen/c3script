@@ -5,6 +5,7 @@
 // Controls: Left/Right arrows move, Up arrow (or Space) jumps. Spikes hurt.
 
 import { C3Editor } from "./c3-monaco.js";
+import { MathModule } from "../examples/stdlib-modules.mjs";
 
 const SAMPLE = `// Live-test scripting against the platformer. Open the console (F12).
 // Autocomplete: type  game.on("   for events, or  game.objects.player.  for the API.
@@ -18,7 +19,7 @@ game.on("jump", (e) => {
 })
 
 game.on("land", (e) => {
-  log("landed at x=" + floor(p.x))
+  log("landed at x=" + Math.floor(p.x))
 })
 
 game.on("input", (e) => {
@@ -116,7 +117,8 @@ export function startPlatformer(monaco) {
   };
   const globals = {
     game,
-    log: (...args) => console.log("[script]", ...args),
+    // Namespaced module — a plain host object (see examples/stdlib-modules.mjs).
+    Math: MathModule,
   };
   const argEnums = { "game.on": { 0: game.__events__ } };
 

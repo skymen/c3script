@@ -521,9 +521,82 @@ test("sandbox: printing a cyclic value does not crash", () => {
   assert.deepEqual(run("let a = [1]\na.push(a)\nprint(a)").out, ["[1, [...]]"]);
 });
 
-test("range and math built-ins", () => {
+test("range built-in", () => {
   assert.deepEqual(run("let s = 0\nfor (let i of range(5)) { s = s + i }\nprint(s)").out, ["10"]);
-  assert.deepEqual(run("print(max(3, 9, 2))\nprint(floor(3.7))\nprint(abs(-4))").out, ["9", "3", "4"]);
+});
+
+// Math is no longer a bare global — it's a namespaced module the host installs.
+const MATH = {
+  max: (...a) => Math.max(...a),
+  floor: (x) => Math.floor(x),
+  abs: (x) => Math.abs(x),
+};
+
+test("namespaced modules: Math.* via installModules", () => {
+  const out = [];
+  const vm = new Interpreter({ print: (s) => out.push(s), modules: { Math: MATH } });
+  vm.compile("print(Math.max(3, 9, 2))\nprint(Math.floor(3.7))\nprint(Math.abs(-4))").run();
+  assert.deepEqual(out, ["9", "3", "4"]);
+});
+
+test("installModules registers modules read-only by default", () => {
+  const vm = new Interpreter({ modules: { Math: MATH } });
+  assert.throws(
+    () => vm.compile("Math.floor = 0").run(),
+    (e) => e instanceof LangError && /read-only/.test(e.langMessage),
+  );
+});
+
+test("array sort/shuffle", () => {
+  assert.deepEqual(run("let a = [3, 1, 2]\na.sort()\nprint(a)").out, ["[1, 2, 3]"]);
+  // comparator returning a number (descending)
+  assert.deepEqual(run("let a = [3, 1, 2]\na.sort((x, y) => y - x)\nprint(a)").out, ["[3, 2, 1]"]);
+  // comparator returning a boolean ("a before b")
+  assert.deepEqual(run("let a = [3, 1, 2]\na.sort((x, y) => x < y)\nprint(a)").out, ["[1, 2, 3]"]);
+  // sort returns the array; shuffle keeps the same elements
+  assert.deepEqual(run("print([3, 1, 2].sort())").out, ["[1, 2, 3]"]);
+  assert.deepEqual(run("let a = [1, 2, 3]\nlet b = a.shuffle()\nprint(a == b)\nprint(len(a))").out, ["true", "3"]);
+});
+
+test("await inside a sort comparator is rejected", () => {
+  assert.throws(
+    () => run("let a = [2, 1]\na.sort((x, y) => { await sleep(0)\n return x - y })"),
+    (e) => e instanceof LangError && /sort comparator/.test(e.langMessage),
+  );
+});
+
+test("host arrays expose the full array method set", () => {
+  const list = ["b", "a", "c"];
+  const { out } = run(
+    "list.push('z')\nlist.sort()\nprint(list.join('-'))\nprint(len(list))\nprint(list.pop())",
+    { list },
+  );
+  assert.deepEqual(out, ["a-b-c-z", "4", "z"]);
+  assert.deepEqual(list, ["a", "b", "c"]); // pop mutated the live host array
+});
+
+test("host array sort with a script comparator marshals elements", () => {
+  const enemies = [{ hp: 3 }, { hp: 1 }, { hp: 2 }];
+  const { out } = run(
+    "enemies.sort((p, q) => p.hp - q.hp)\nprint(enemies[0].hp)\nprint(enemies[2].hp)",
+    { enemies },
+  );
+  assert.deepEqual(out, ["1", "3"]);
+});
+
+test("__-prefixed host keys are private to scripts", () => {
+  const cfg = { hp: 10, __docs__: { hp: "x" }, __events__: ["e"] };
+  assert.deepEqual(run("print(keys(cfg))", { cfg }).out, ["[hp]"]);
+  assert.deepEqual(run("print(cfg.__docs__)", { cfg }).out, ["null"]);
+  assert.deepEqual(run("print(len(cfg))", { cfg }).out, ["1"]);
+  assert.throws(
+    () => run("cfg.__docs__ = 1", { cfg }),
+    (e) => e instanceof LangError && /unsafe/.test(e.langMessage),
+  );
+});
+
+test("log is an alias of print", () => {
+  assert.deepEqual(run("log('hi', 2)").out, ["hi 2"]);
 });
 
 test("typeof operator reports value type names", () => {
@@ -689,9 +762,9 @@ test("await a promise stored on a host object property", async () => {
   assert.deepEqual(out, ["level1"]);
 });
 
-test("all() awaits a list of promises in order", async () => {
+test("waitAll() awaits a list of promises in order", async () => {
   const g = { a: () => Promise.resolve(1), b: () => Promise.resolve(2) };
-  const { out } = await runAsync("let r = await all([a(), b(), 3])\nprint(r)", g);
+  const { out } = await runAsync("let r = await waitAll([a(), b(), 3])\nprint(r)", g);
   assert.deepEqual(out, ["[1, 2, 3]"]);
 });
 

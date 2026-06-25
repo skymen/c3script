@@ -4,13 +4,18 @@
 import readline from "node:readline";
 import { Environment } from "../src/environment.js";
 import { Evaluator } from "../src/interpreter.js";
-import { installStdlib } from "../src/stdlib.js";
+import { installCoreGlobals } from "../src/stdlib.js";
+import { defineGlobals } from "../src/host.js";
 import { parse } from "../src/parser.js";
 import { stringify } from "../src/values.js";
 import { LangError } from "../src/errors.js";
+import { MathModule } from "./stdlib-modules.mjs";
 
 const globals = new Environment();
-installStdlib(globals);
+installCoreGlobals(globals);
+// Math is a namespaced module the host installs — read-only so `Math.floor`
+// can't be clobbered. (See examples/stdlib-modules.mjs.)
+defineGlobals(globals, { Math: MathModule }, { writable: false, extensible: false });
 const env = globals.child();
 const ev = new Evaluator();
 

@@ -2,6 +2,7 @@
 // C3Editor, and hooks up the Run button. All logs go to the browser console.
 
 import { C3Editor } from "./c3-monaco.js";
+import { MathModule } from "../examples/stdlib-modules.mjs";
 
 const SAMPLE = `// c3script sandbox — open the browser console (F12) for output.
 // Try autocomplete:
@@ -64,7 +65,9 @@ export function startSandbox(monaco) {
 
   const globals = {
     game,
-    log: (msg) => console.log("[script]", msg),
+    // A namespaced module is just a host object (see examples/stdlib-modules.mjs).
+    // Putting it in `globals` makes Math.* both runnable and autocompletable.
+    Math: MathModule,
   };
 
   // Optional explicit schema (equivalent here to the __events__ convention).

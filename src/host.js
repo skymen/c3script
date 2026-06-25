@@ -5,7 +5,7 @@
 // policy controls whether scripts may modify or extend a host object, and an
 // optional `fields` map can narrow that policy per key/subtree.
 
-import { NativeFn, Closure, ClassValue, Instance, HostObject } from "./values.js";
+import { NativeFn, Closure, ClassValue, Instance, HostObject, isPrivateKey } from "./values.js";
 import { LangError } from "./errors.js";
 
 const DEFAULT_POLICY = { writable: true, extensible: true };
@@ -92,6 +92,7 @@ export function hostGet(host, key) {
   if (Array.isArray(target) && (k === "len" || k === "length")) {
     return target.length;
   }
+  if (isPrivateKey(k)) return null; // __ metadata channels are invisible to scripts
   if (DANGEROUS_KEYS.has(k)) return null;
   if (target == null || !Object.hasOwn(target, k)) return null; // own properties only
   const val = target[k];
@@ -111,7 +112,7 @@ export function hostGet(host, key) {
 // so a script cannot set `__proto__` (prototype pollution) or `constructor`.
 export function hostSet(host, key, value) {
   const k = typeof key === "number" ? key : String(key);
-  if (DANGEROUS_KEYS.has(k)) {
+  if (isPrivateKey(k) || DANGEROUS_KEYS.has(k)) {
     throw new LangError(`cannot set unsafe property '${k}'`, { phase: "runtime" });
   }
   const p = host.policy || DEFAULT_POLICY;

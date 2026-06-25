@@ -58,13 +58,16 @@ program.call("onClick", [id]);         // 5. (optional) invoke handlers later
 
 ```js
 const vm = new Interpreter({
-  stdlib: true,        // install built-ins (print, len, range, math…). Default true.
-  print: (text) => {}, // where print() output goes. Default console.log.
+  stdlib: true,             // install the bare globals (print, len, range…). Default true.
+  modules: { Math, Easing },// namespaced modules, registered read-only. Default none.
+  print: (text) => {},      // where print() output goes. Default console.log.
 });
 ```
 
 Passing `print` is the clean way to capture script output (for a console pane,
-tests, logging, etc.).
+tests, logging, etc.). `modules` registers namespaced host objects read-only — the
+same as calling `vm.installModules({ Math, Easing })` after construction (see
+[§6 Namespaced modules](#namespaced-modules-math)).
 
 ### Compiling and running
 
@@ -374,13 +377,13 @@ cbs[0]()   // 1   (not 3)
 
 `await <expr>` suspends the script until a promise settles, then resumes with the
 resolved value. Promises come from the host (a host function that returns a JS
-`Promise`) or from the `sleep` / `all` built-ins. `await` on a non-promise just
+`Promise`) or from the `sleep` / `waitAll` built-ins. `await` on a non-promise just
 returns the value unchanged (as in JS).
 
 ```js
-let data = await engine.load("level1")   // await a host promise
-await sleep(100)                          // pause 100ms
-let both = await all([loadA(), loadB()])  // wait for several at once
+let data = await engine.load("level1")        // await a host promise
+await sleep(100)                               // pause 100ms
+let both = await waitAll([loadA(), loadB()])   // wait for several at once
 ```
 
 There is no `async` keyword — `await` is allowed in any function (or at the top
@@ -418,7 +421,7 @@ Two things to watch:
   fires later (or before you await).
 - **Values round-trip through the host** on resume, so a script array or object
   passed to `resolve` comes back as a host object (the same behavior as awaiting
-  `all([...])`). Primitives are unchanged.
+  `waitAll([...])`). Primitives are unchanged.
 
 ### Functions and closures
 
@@ -454,9 +457,14 @@ a.pop()         // remove & return last (or null if empty)
 a.indexOf(20)   // 1
 a.join(", ")    // "10, 20, 30, 40"
 a.slice(1, 3)   // [20, 30]
+a.sort()        // in place, natural order; returns the array
+a.sort((x, y) => y - x)   // comparator: a number (JS-style) OR a boolean ("a before b")
+a.shuffle()     // Fisher–Yates, in place; returns the array
 ```
 
-Indices must be integers; reading out of range returns `null`.
+Indices must be integers; reading out of range returns `null`. The same method set
+(including `sort`/`shuffle`) is available on **host-wrapped arrays** — e.g. an array
+a host function returns — with values marshalled across the boundary automatically.
 
 ### Strings
 
@@ -515,21 +523,22 @@ b.name      // "Dragon"
 
 ## 6. Built-in functions
 
-Installed by default (`stdlib: true`). They operate directly on script values.
+The bare globals installed by default (`stdlib: true`). They operate directly on
+script values. Math is **not** here — it's a namespaced module the host installs
+(see ["Namespaced modules"](#namespaced-modules-math) below).
 
 | Function | Description |
 |----------|-------------|
 | `print(...args)` | Print values separated by spaces (goes to the host's `print`). |
+| `log(...args)` | Alias of `print`. |
 | `len(x)` | Length of an array/string, or number of keys in an object. |
-| `keys(obj)` | Array of an object's keys. |
+| `keys(obj)` | Array of an object's keys (`__`-prefixed keys are hidden). |
 | `str(x)` | Convert any value to its string form. |
 | `num(x)` | Convert to a number (returns `null` if not numeric). |
 | `bool(x)` | Truthiness of `x` as a bool. |
 | `range(n)` / `range(a, b)` / `range(a, b, step)` | Array of numbers (like Python's `range`). |
-| `abs ceil floor round sqrt` | Math, one argument. |
-| `min(...n)` `max(...n)` `pow(a, b)` | Math. |
 | `sleep(ms)` | Returns a promise that resolves after `ms` milliseconds. `await` it. |
-| `all(arr)` | Returns a promise resolving to an array of the awaited elements. |
+| `waitAll(arr)` | Returns a promise resolving to an array of the awaited elements. |
 | `defer()` | Returns `{ promise, resolve(v), reject(e) }` — a script-controllable promise. |
 
 ```js
@@ -537,6 +546,27 @@ let total = 0
 for (let i of range(5)) { total = total + i }   // 0+1+2+3+4 = 10
 print("sum:", total)
 ```
+
+### Namespaced modules (`Math`)
+
+The language core ships no `Math` so it stays stdlib-agnostic. A namespaced module
+is just a plain host object you register read-only; `examples/stdlib-modules.mjs`
+is a copy-paste-ready `Math` (`floor`, `clamp`, `lerp`, `random`, `rad`/`deg`, …)
+plus an `Easing` module. Install at construction with the `modules` option, or
+later with `installModules`:
+
+```js
+import { MathModule } from "./examples/stdlib-modules.mjs";
+
+const vm = new Interpreter({ modules: { Math: MathModule } });
+// equivalently: new Interpreter().installModules({ Math: MathModule })
+await vm.run("print(Math.floor(3.7))");   // -> 3
+// Math.floor = 0   // throws — modules are read-only by default
+```
+
+`installModules(modules, options)` defaults `options` to
+`{ writable: false, extensible: false }`; pass your own to relax. Each module's
+members are documented for the editor via a sibling `__docs__` map (see §10).
 
 ---
 
@@ -614,7 +644,12 @@ cannot reach the host's JS internals or run arbitrary JS.
 - **Denial-of-service fails gracefully**: runaway recursion, cyclic values, and
   pathologically nested source all surface as a `LangError`; the `maxSteps` budget
   bounds loops.
-- **Per-global write policy** (`writable` / `extensible`) further restricts mutation.
+- **Per-global write policy** (`writable` / `extensible`) further restricts mutation;
+  `installModules` registers modules read-only by default.
+- **`__`-prefixed keys are private metadata** — invisible to scripts (not readable,
+  not in `keys()`/`len()`, not stringified, not writable). This lets a registered
+  object carry editor-only metadata (`__docs__`, `__events__`, `__argEnums__`)
+  without leaking it into the script's view.
 
 Run the security regression probe any time you extend the host bridge:
 
@@ -647,7 +682,17 @@ editor dependency) for building autocomplete and diagnostics:
   string argument and resolve enum values (e.g. `game.on("…")`), from a schema or an
   `__events__` array on the host object.
 - `collectScriptSymbols(source)` — the user's own declared names.
-- `BUILTINS` / `KEYWORDS` — stdlib names and language keywords.
+- `BUILTINS` / `KEYWORDS` — bare global names and language keywords. `BUILTINS` is
+  derived from the installer's own `CORE_GLOBAL_NAMES`, so it can't drift; namespaced
+  module members (`Math.floor`) are not listed here — the editor discovers them live
+  by walking the `globals` graph with `describeObject`.
+
+The editor reads three `__`-private metadata channels off your registered objects —
+all invisible to running scripts (see §9): **`__docs__`** (member → one-line doc,
+used by `describeObject`/`docFor`), **`__events__`** (event names offered inside
+`obj.on("…")`), and **`__argEnums__`** (per-method, per-argument value lists). Put
+them directly on the host object; they double as the single source of truth for both
+runtime shape and editor hints.
 
 A ready-made Monaco wrapper lives in `sandbox/c3-monaco.js`:
 
@@ -678,9 +723,10 @@ react to live.
   expression with operators.
 - **Host class instances**: only own-property methods are callable from scripts;
   prototype methods are not visible through the live bridge.
-- **Host arrays** exposed via the bridge support read / index / iterate / `len`,
-  but not mutation methods like `push` (convert to a script array, or expose a
-  method). Script-created arrays support all the array methods.
+- **Host arrays** exposed via the bridge support the full array method set
+  (`push`/`pop`/`indexOf`/`join`/`slice`/`sort`/`shuffle`, plus index/iterate/`len`),
+  with elements marshalled across the boundary; in-place mutators change the live
+  host array. Mutating a host array from a script therefore writes through to the host.
 - **No `try`/`catch`** in the language; errors propagate to the host as `LangError`.
   This includes a **rejected** awaited promise — scripts cannot catch it.
 - **`await` makes the result a Promise** — `run()` / `call()` / `invoke()` return a

@@ -117,10 +117,10 @@ function makeAdder(x) {
   return add
 }
 
-// async: await host promises and the sleep/all built-ins
+// async: await host promises and the sleep/waitAll built-ins
 let data = await engine.load("level1")
 await sleep(100)
-let both = await all([loadA(), loadB()])
+let both = await waitAll([loadA(), loadB()])
 ```
 
 **Operators:** `+ - * / %`, `== != < <= > >=`, `&& || !`, `? :`, `typeof x`,
@@ -130,15 +130,42 @@ let both = await all([loadA(), loadB()])
 (`"number"`, `"array"`, `"instance"`, `"promise"`, …); `instanceof` tests
 user-defined classes and walks the inheritance chain.
 
-**Async/await:** `await` a promise (returned by a host function or `sleep`/`all`)
+**Async/await:** `await` a promise (returned by a host function or `sleep`/`waitAll`)
 to suspend until it settles; no `async` keyword needed. `run()`/`call()`/`invoke()`
 return a `Promise` automatically when a script awaits (and the value directly when
 it doesn't), so just `await` the call — there's no separate async API. A rejected
 await propagates to the host as a `LangError` (the language has no `try`/`catch`).
 
-**Built-ins:** `print`, `len`, `keys`, `str`, `num`, `bool`, `range`,
-`sleep`, `all`, and math (`abs floor ceil round sqrt min max pow`). Arrays have
-`len/push/pop/indexOf/join/slice`; strings have `len/upper/lower/slice/indexOf/split/contains`.
+**Built-ins (bare globals):** `print`, `log` (alias of `print`), `len`, `keys`,
+`str`, `num`, `bool`, `range`, `sleep`, `waitAll`, `defer`. Math is **not** a bare
+global — it's a namespaced module the host installs (`Math.floor(...)`); see
+[Namespaced modules](#namespaced-modules-math-) below. Arrays have
+`len/push/pop/indexOf/join/slice/sort/shuffle` (also on host-wrapped arrays);
+strings have `len/upper/lower/slice/indexOf/split/contains`.
+
+```js
+let a = [3, 1, 2]
+a.sort()                  // -> [1, 2, 3]   (natural order)
+a.sort((x, y) => y - x)   // -> [3, 2, 1]   (comparator: number, or boolean "a before b")
+a.shuffle()               // Fisher–Yates, in place
+```
+
+### Namespaced modules (`Math.*`)
+
+Anything namespaced is a plain host object you register read-only. The library
+ships none (the language core stays stdlib-agnostic) — see
+`examples/stdlib-modules.mjs` for a ready-to-copy `Math` (and `Easing`):
+
+```js
+import { Interpreter } from "c3script";
+import { MathModule } from "./examples/stdlib-modules.mjs";
+
+const vm = new Interpreter({ modules: { Math: MathModule } });
+await vm.run("print(Math.clamp(50, 0, 10))");   // -> 10
+// Math.floor = 0   // throws: modules are read-only by default
+```
+
+`installModules(modules, { writable, extensible })` is the same thing post-construction.
 
 ## Host integration (`src/host.js`)
 
@@ -153,6 +180,12 @@ await propagates to the host as a `LangError` (the language has no `try`/`catch`
 - **Write policy** via `options`: `{ writable: false }` makes an object read-only
   to scripts; `{ extensible: false }` allows updating existing keys but rejects new
   ones. Both default to `true`. The policy propagates to nested objects.
+  `interpreter.installModules({...})` is a shorthand for registering several
+  namespaced objects read-only at once.
+- **`__`-prefixed keys are private metadata channels.** A `__docs__` / `__events__`
+  / `__argEnums__` key on a registered object is read by editor tooling but is
+  invisible to running scripts — not readable, not in `keys()`/`len()`, not
+  stringified, and not writable. Put per-member docs in a sibling `__docs__` map.
 - Only what you register is reachable — the sandbox boundary lives in this one file.
 
 ### Calling into scripts
@@ -243,12 +276,13 @@ itself (so they can't drift). The framework-agnostic logic behind it
 | `src/environment.js` | lexical scope chain |
 | `src/interpreter.js` | generator-based evaluator |
 | `src/host.js` | host-binding layer + marshalling (the sandbox boundary) |
-| `src/stdlib.js` | built-in functions |
+| `src/stdlib.js` | bare global functions + `CORE_GLOBAL_NAMES` |
 | `src/debugger.js` | step / breakpoints / inspection |
 | `src/editor-support.js` | framework-agnostic autocomplete/diagnostics helpers |
 | `src/index.js` | public API (`Interpreter`, `Program`, `Debugger`) |
 | `sandbox/c3-monaco.js` | reusable `C3Editor` Monaco wrapper |
 | `sandbox/` | runnable browser sandbox + tiny static server |
+| `examples/stdlib-modules.mjs` | reference `Math`/`Easing` namespaced modules to copy |
 
 ## Security model
 

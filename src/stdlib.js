@@ -2,14 +2,36 @@
 // and return script values directly, with no host marshalling). Opt-in via the
 // public API. `print` output is overridable for tests and custom hosts.
 
-import { NativeFn, stringify, typeName, isTruthy, HostObject } from "./values.js";
+import { NativeFn, stringify, typeName, isTruthy, HostObject, isPrivateKey } from "./values.js";
 import { LangError } from "./errors.js";
+
+// Single source of truth for the bare, un-namespaced global verbs. These stay
+// un-namespaced because they read naturally as plain calls and depend on
+// language internals (raw script values, stringify, lengthOf, …). Namespaced
+// modules (Math, Easing, …) are plain host objects installed separately via
+// Interpreter.installModules — see examples/stdlib-modules.mjs. The editor's
+// BUILTINS list is derived from this array so the two can never drift.
+export const CORE_GLOBAL_NAMES = [
+  "print",
+  "log",
+  "len",
+  "keys",
+  "str",
+  "num",
+  "bool",
+  "range",
+  "sleep",
+  "waitAll",
+  "defer",
+];
 
 function lengthOf(x) {
   if (Array.isArray(x) || typeof x === "string") return x.length;
   if (x instanceof Map) return x.size;
   if (x instanceof HostObject) {
-    return Array.isArray(x.obj) ? x.obj.length : Object.keys(x.obj).length;
+    return Array.isArray(x.obj)
+      ? x.obj.length
+      : Object.keys(x.obj).filter((k) => !isPrivateKey(k)).length;
   }
   throw new Error(`len() expects array, string, or object, got ${typeName(x)}`);
 }
@@ -17,7 +39,7 @@ function lengthOf(x) {
 function keysOf(x) {
   if (x instanceof Map) return [...x.keys()];
   if (x instanceof HostObject && x.obj && typeof x.obj === "object") {
-    return Object.keys(x.obj);
+    return Object.keys(x.obj).filter((k) => !isPrivateKey(k)); // hide __ metadata
   }
   throw new Error(`keys() expects an object, got ${typeName(x)}`);
 }
@@ -33,11 +55,14 @@ function makeRange(a, b, step) {
   return out;
 }
 
-export function installStdlib(env, { print } = {}) {
+export function installCoreGlobals(env, { print } = {}) {
   const out = print || ((s) => console.log(s));
   const def = (name, fn) => env.define(name, new NativeFn(fn, name, undefined, true));
 
-  def("print", (...args) => { out(args.map((a) => stringify(a)).join(" ")); return null; });
+  // `log` is an alias of `print` — same underlying function.
+  const printFn = (...args) => { out(args.map((a) => stringify(a)).join(" ")); return null; };
+  def("print", printFn);
+  def("log", printFn);
   def("len", (x) => lengthOf(x));
   def("keys", (x) => keysOf(x));
   def("str", (x) => stringify(x));
@@ -52,8 +77,8 @@ export function installStdlib(env, { print } = {}) {
   // `await` (the host then awaits the Promise run()/call() returns). Raw builtins
   // skip marshalling, so the promise reaches the script as an awaitable value.
   def("sleep", (ms) => new Promise((r) => setTimeout(r, ms == null ? 0 : ms)));
-  def("all", (arr) => {
-    if (!Array.isArray(arr)) throw new Error(`all() expects an array, got ${typeName(arr)}`);
+  def("waitAll", (arr) => {
+    if (!Array.isArray(arr)) throw new Error(`waitAll() expects an array, got ${typeName(arr)}`);
     return Promise.all(arr.map((x) => Promise.resolve(x)));
   });
   // A script-controllable promise (like JS Promise.withResolvers). Returns a
@@ -75,16 +100,6 @@ export function installStdlib(env, { print } = {}) {
     }, "reject", undefined, true));
     return obj;
   });
-
-  // Math
-  def("abs", (x) => Math.abs(x));
-  def("floor", (x) => Math.floor(x));
-  def("ceil", (x) => Math.ceil(x));
-  def("round", (x) => Math.round(x));
-  def("sqrt", (x) => Math.sqrt(x));
-  def("min", (...a) => Math.min(...a));
-  def("max", (...a) => Math.max(...a));
-  def("pow", (a, b) => Math.pow(a, b));
 
   return env;
 }

@@ -3,6 +3,7 @@
 // data, so a Monaco / CodeMirror / LSP front-end is a thin wrapper.
 
 import { parse } from "./parser.js";
+import { CORE_GLOBAL_NAMES } from "./stdlib.js";
 
 // Given the text BEFORE the cursor, determine the dotted path being completed.
 //   "game.objects.pl"  -> { path: ["game","objects"], partial: "pl", isMember: true }
@@ -169,6 +170,7 @@ export const ARRAY_MEMBERS = [
   { name: "push", kind: "function", arity: 1 }, { name: "pop", kind: "function", arity: 0 },
   { name: "indexOf", kind: "function", arity: 1 }, { name: "join", kind: "function", arity: 1 },
   { name: "slice", kind: "function", arity: 2 },
+  { name: "sort", kind: "function", arity: 1 }, { name: "shuffle", kind: "function", arity: 0 },
 ];
 export const STRING_MEMBERS = [
   { name: "length", kind: "value" }, { name: "len", kind: "value" },
@@ -274,12 +276,11 @@ export function memberSuggestions(path, { globals = {}, source = "" } = {}) {
   return describeObject(resolvePathValue(globals, path));
 }
 
-// The built-in (stdlib) function names, for top-level completion.
-export const BUILTINS = [
-  "print", "len", "keys", "str", "num", "bool", "range",
-  "abs", "floor", "ceil", "round", "sqrt", "min", "max", "pow",
-  "sleep", "all", "defer",
-];
+// The built-in (stdlib) function names, for top-level completion. Derived from
+// the installer's own list (stdlib.js) so the two can never drift. Namespaced
+// module members (Math.floor, …) are intentionally NOT here — the editor
+// discovers them live via describeObject() over the globals graph.
+export const BUILTINS = CORE_GLOBAL_NAMES;
 
 // Language keywords, for top-level completion (mirrors lexer.js KEYWORDS).
 export const KEYWORDS = [

@@ -10,7 +10,7 @@ import { Environment } from "./environment.js";
 import { Evaluator } from "./interpreter.js";
 import { parse } from "./parser.js";
 import { defineGlobal, defineGlobals, hostToScript } from "./host.js";
-import { installStdlib } from "./stdlib.js";
+import { installCoreGlobals, CORE_GLOBAL_NAMES } from "./stdlib.js";
 import { isCallable } from "./values.js";
 import { LangError } from "./errors.js";
 
@@ -83,10 +83,19 @@ export class Program {
 }
 
 export class Interpreter {
-  constructor({ stdlib = true, print = null } = {}) {
+  constructor({ stdlib = true, modules = null, print = null } = {}) {
     this.globals = new Environment();
     this.evaluator = new Evaluator();
-    if (stdlib) installStdlib(this.globals, { print });
+    if (stdlib) installCoreGlobals(this.globals, { print });
+    if (modules) this.installModules(modules);
+  }
+
+  // Install namespaced stdlib modules — plain JS objects whose members are the
+  // namespace's functions/values (e.g. { Math, Easing }). Read-only by default so
+  // scripts can't clobber Math.floor; pass { writable, extensible } to relax.
+  installModules(modules, options = { writable: false, extensible: false }) {
+    defineGlobals(this.globals, modules, options);
+    return this;
   }
 
   // options: { writable, extensible } control whether scripts may modify or add
@@ -115,6 +124,7 @@ export class Interpreter {
   }
 }
 
+export { installCoreGlobals, CORE_GLOBAL_NAMES } from "./stdlib.js";
 export { LangError } from "./errors.js";
 export { parse } from "./parser.js";
 export { tokenize } from "./lexer.js";
